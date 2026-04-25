@@ -1,0 +1,13 @@
+torch
+transformers
+peft
+accelerate
+bitsandbytes
+datasets
+trl
+sentence-transformers
+faiss-cpu
+fastapi
+uvicorn[standard]
+line-bot-sdk
+python-dotenv
