@@ -1,0 +1,36 @@
+key,value,notes
+qq_app_id,,Required: QQ bot AppID
+qq_app_secret,,Required: QQ bot AppSecret
+qq_sandbox,false,Set true when using QQ sandbox
+enable_group_at,true,Handle group @ messages
+enable_c2c,true,Handle private C2C messages
+roleweaver_chat_url,http://127.0.0.1:18000/chat,Local URL forwarded to the remote RoleWeaver text API
+roleweaver_timeout_seconds,120,Timeout for remote text generation
+max_new_tokens,120,Max tokens requested from RoleWeaver
+ssh_enable,true,Start an SSH tunnel before connecting QQ
+ssh_user,,Required when ssh_enable=true
+ssh_host,,Required when ssh_enable=true
+ssh_port,22,SSH port
+ssh_identity_file,,Optional private key path
+ssh_local_port,18000,Local forwarded port
+ssh_remote_host,127.0.0.1,Host visible from the SSH server
+ssh_remote_port,8000,Remote RoleWeaver API port
+ssh_extra_args,,Optional extra ssh args, for example -J jump-host
+tts_url,http://127.0.0.1:9880/tts,Local GPT-SoVITS api_v2 /tts endpoint
+tts_timeout_seconds,180,Timeout for TTS generation
+gpt_weights_path,C:\Users\kator\Desktop\RoleWeaver\G\GPT_weights_v2ProPlus\秦谷美铃-e15.ckpt,Optional: GPT weight path loaded through /set_gpt_weights
+sovits_weights_path,C:\Users\kator\Desktop\RoleWeaver\G\SoVITS_weights_v2ProPlus\秦谷美铃_e8_s1312.pth,Optional: SoVITS weight path loaded through /set_sovits_weights
+ref_audio_path,,Required: zero-shot reference audio path
+prompt_text,,Required: text spoken in the reference audio
+prompt_lang,zh,Reference audio language
+text_lang,zh,Generated text language
+tts_media_type,wav,GPT-SoVITS output media type
+tts_text_split_method,cut5,GPT-SoVITS text split method
+tts_speed_factor,1.0,Speech speed
+audio_output_dir,C:\Users\kator\Desktop\RoleWeaver\data\qqbot_audio,Where generated audio files are saved
+public_audio_base_url,,Required for QQ voice upload: public URL prefix that maps to audio_output_dir
+silk_converter_command,,Optional command template: silk_encoder {input} {output}
+qq_voice_file_type,3,QQ media file type: 3 means voice/silk
+send_text_preview,false,Send text before voice
+fallback_to_text,true,Send error text if voice fails
+worker_queue_size,1,Reserved for future queue control

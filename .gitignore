@@ -7,6 +7,7 @@ __pycache__/
 .tmp/
 
 # Model artifacts
+G/
 qwen35-9b/
 qwen35-9b-4bit/
 meiling-qwen35-9b-lora/
@@ -38,5 +39,9 @@ roleweaver.config.csv
 roleweaver.config.toml
 roleweaver.config.json
 !roleweaver.config.example.csv
+QQbot/qq_voice_bot.config.csv
+QQbot/audio_out/
 data/line_sessions/
 data/sessions/
+data/qqbot_audio/
+data/*.jsonl

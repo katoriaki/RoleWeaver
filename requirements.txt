@@ -11,3 +11,4 @@ fastapi
 uvicorn[standard]
 line-bot-sdk
 python-dotenv
+qq-botpy
