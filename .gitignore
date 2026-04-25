@@ -1,0 +1,38 @@
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.tmp/
+
+# Model artifacts
+qwen35-9b/
+qwen35-9b-4bit/
+meiling-qwen35-9b-lora/
+*.safetensors
+*.bin
+*.pt
+*.pth
+
+# Local character datasets / source packs
+meiling_sft_*.jsonl
+misuzu-hataya-perspective/
+好感度文本.docx
+
+# Runtime memory state
+memories_v2.json
+memories_v2.faiss
+user_profile_v1.json
+memory_state_v1.json
+knowledge_graph_v1.json
+
+# Local caches and logs
+.cache/
+*.log
+.idea/
+.env
+.env.*
+!*.example
+data/line_sessions/
+data/sessions/
