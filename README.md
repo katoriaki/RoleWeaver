@@ -41,6 +41,21 @@ $env:ROLEWEAVER_CONFIG_FILE="C:\roles\your-role\roleweaver.config.csv"
 
 Direct `ROLEWEAVER_*` variables and `MISUZU_*` variables are still accepted for migration compatibility, but normal use should go through the config file.
 
+## HTTP API
+
+On a server, expose RoleWeaver as a local HTTP API:
+
+```powershell
+python API.py --config roleweaver.config.csv --host 127.0.0.1 --port 8000
+```
+
+Endpoints:
+
+- `GET /health`
+- `POST /chat`
+- `GET /chat?user_text=...`
+- `POST /consolidate/{session_id}`
+
 ## LINE Bot
 
 The LINE app reads the same `ROLEWEAVER_*` variables plus:
