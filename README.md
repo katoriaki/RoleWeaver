@@ -58,6 +58,8 @@ uvicorn line.app:app --host 0.0.0.0 --port 8000
 
 ## Training A New Adapter
 
+For the original offline Qwen3.5-9B LoRA training workflow, see `resources/qwen35_lora_training/`.
+
 ```powershell
 python train_lora.py `
   --base-model-path "C:\models\base-model" `
