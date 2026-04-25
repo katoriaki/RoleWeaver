@@ -3,27 +3,27 @@
 ## 1. 目标 / Goal
 
 中文：  
-这份文档说明如何把当前的秦谷美铃本地对话系统挂到 LINE Messaging API 上，作为一个可接收文本消息并回复的 LINE Bot。
+这份文档说明如何把 RoleWeaver 本地角色对话系统挂到 LINE Messaging API 上，作为一个可接收文本消息并回复的 LINE Bot。
 
 English:  
-This document explains how to connect the current local Misuzu Hataya chat system to the LINE Messaging API as a LINE bot that receives text messages and replies to them.
+This document explains how to connect the local RoleWeaver role chat system to the LINE Messaging API as a LINE bot that receives text messages and replies to them.
 
 ## 2. 本次新增文件 / New Files
 
-- [app.py](C:/Users/kator/Desktop/HMSZ/line/app.py:1)
+- `app.py`
 - `requirements.txt`
 - `.env.example`
 
 中文：  
-LINE 相关代码都收在 `line/` 目录中，本地 CLI 入口继续保留在项目根目录的 [test_memory.py](C:/Users/kator/Desktop/HMSZ/test_memory.py:1)。
+LINE 相关代码都收在 `line/` 目录中，本地 CLI 入口是项目根目录的 `local_chat.py`。
 
 English:  
-All LINE-specific code now lives under the `line/` directory, while the local CLI entry remains at [test_memory.py](C:/Users/kator/Desktop/HMSZ/test_memory.py:1).
+All LINE-specific code now lives under the `line/` directory, while the local CLI entry is `local_chat.py` at the project root.
 
 ## 3. 架构说明 / Architecture
 
 中文：  
-为了让 CLI、本地调试和 LINE 机器人共用一套核心逻辑，项目新增了 [misuzu_chat_service.py](C:/Users/kator/Desktop/HMSZ/misuzu_chat_service.py:1)：
+为了让 CLI、本地调试和 LINE 机器人共用一套核心逻辑，核心运行时在 `role_chat_service.py`：
 
 - 模型和 tokenizer 只加载一次
 - 不同 LINE 用户使用不同的 `session_id`
@@ -36,11 +36,11 @@ LINE webhook 流程如下：
 3. `line/app.py` 验证签名
 4. 解析文本消息事件
 5. 根据 `user_id / group_id / room_id` 生成 session id
-6. 调用 `MisuzuChatService.chat_once()`
+6. 调用 `RoleChatService.chat_once()`
 7. 把结果通过 Messaging API reply 回用户
 
 English:  
-To let the CLI, local debugging, and LINE bot share the same core logic, the project adds [misuzu_chat_service.py](C:/Users/kator/Desktop/HMSZ/misuzu_chat_service.py:1):
+To let the CLI, local debugging, and LINE bot share the same core logic, the runtime lives in `role_chat_service.py`:
 
 - the model and tokenizer are loaded only once
 - different LINE users get different `session_id`s
@@ -53,20 +53,24 @@ The LINE webhook flow is:
 3. `line/app.py` verifies the signature
 4. It parses text message events
 5. It builds a session id from `user_id / group_id / room_id`
-6. It calls `MisuzuChatService.chat_once()`
+6. It calls `RoleChatService.chat_once()`
 7. It replies to the user through the Messaging API
 
 ## 4. 环境变量 / Environment Variables
 
-参考文件 / Reference file: [line/.env.example](C:/Users/kator/Desktop/HMSZ/line/.env.example:1)
+参考文件 / Reference file: `line/.env.example`
 
 - `LINE_CHANNEL_SECRET`
 - `LINE_CHANNEL_ACCESS_TOKEN`
-- `MISUZU_BASE_MODEL_PATH`
-- `MISUZU_LORA_PATH`
-- `MISUZU_SESSION_ROOT`
-- `MISUZU_IDLE_CONSOLIDATION_SECONDS`
+- `ROLEWEAVER_CONFIG_FILE`
+- `ROLEWEAVER_IDLE_CONSOLIDATION_SECONDS`
   - `0` means disable idle auto consolidation
+
+角色本身只需要在 `roleweaver.config.csv` 里填写：
+
+- `base_model_path`
+- `lora_path`
+- `skill_file`
 
 ## 5. 安装依赖 / Install Dependencies
 

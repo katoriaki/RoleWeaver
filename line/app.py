@@ -25,9 +25,7 @@ from linebot.v3.webhooks import (
 
 from role_chat_service import RoleChatService
 from role_config import (
-    DEFAULT_BASE_MODEL_PATH,
     DEFAULT_IDLE_CONSOLIDATION_SECONDS,
-    DEFAULT_LORA_PATH,
     RoleConfig,
     normalize_idle_consolidation_seconds,
 )
@@ -68,15 +66,19 @@ def _env_first(*names: str) -> Optional[str]:
 @lru_cache(maxsize=1)
 def get_chat_service() -> RoleChatService:
     default_session_root = str((LINE_DIR.parent / "data" / "line_sessions").resolve())
+    config_file = _env_first("ROLEWEAVER_CONFIG_FILE", "MISUZU_CONFIG_FILE")
+    session_root = _env_first("MISUZU_SESSION_ROOT")
+    if not config_file and not _env_first("ROLEWEAVER_SESSION_ROOT"):
+        session_root = session_root or default_session_root
+
     config = RoleConfig.from_env(
-        role_name=_env_first("ROLEWEAVER_ROLE_NAME", "MISUZU_ROLE_NAME"),
-        user_subject=_env_first("ROLEWEAVER_USER_SUBJECT", "MISUZU_USER_SUBJECT"),
-        base_model_path=_env_first("ROLEWEAVER_BASE_MODEL_PATH", "MISUZU_BASE_MODEL_PATH")
-        or DEFAULT_BASE_MODEL_PATH,
-        lora_path=_env_first("ROLEWEAVER_LORA_PATH", "MISUZU_LORA_PATH") or DEFAULT_LORA_PATH,
+        config_file=config_file,
+        role_name=_env_first("MISUZU_ROLE_NAME"),
+        user_subject=_env_first("MISUZU_USER_SUBJECT"),
+        base_model_path=_env_first("MISUZU_BASE_MODEL_PATH"),
+        lora_path=_env_first("MISUZU_LORA_PATH"),
         skill_file=_env_first("ROLEWEAVER_SKILL_FILE", "MISUZU_SKILL_FILE"),
-        session_root=_env_first("ROLEWEAVER_SESSION_ROOT", "MISUZU_SESSION_ROOT")
-        or default_session_root,
+        session_root=session_root,
         idle_consolidation_seconds=normalize_idle_consolidation_seconds(
             _env_first("ROLEWEAVER_IDLE_CONSOLIDATION_SECONDS", "MISUZU_IDLE_CONSOLIDATION_SECONDS"),
             default=DEFAULT_IDLE_CONSOLIDATION_SECONDS,

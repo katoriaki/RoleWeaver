@@ -9,39 +9,37 @@ Milestone 1 target:
 - provide a base model path
 - provide a trained LoRA adapter path
 - optionally provide a `SKILL.md`
-- get a local chat service with role prompting, per-session memory, optional LINE bot entrypoint, and the same runtime shape as the original HMSZ prototype
+- get a local chat service with role prompting, per-session memory, and an optional LINE bot entrypoint
 
 ## Local Chat
 
+Copy `roleweaver.config.example.csv` to `roleweaver.config.csv`, open it in Excel or any text editor, then fill only these three values:
+
+- `base_model_path`
+- `lora_path`
+- `skill_file`
+
+`roleweaver.config.csv` is ignored by git so local machine paths do not get committed.
+
 ```powershell
-python local_chat.py `
-  --role-name "Your Role" `
-  --base-model-path "C:\models\base-model" `
-  --lora-path "C:\models\your-role-lora" `
-  --skill-file "C:\roles\your-role\SKILL.md" `
-  --session-id "local-cli"
+python local_chat.py
 ```
 
-The old project-specific entrypoint is still available as a compatibility wrapper:
+You can also point to a specific config file:
 
 ```powershell
-python misuzu_chat_service.py
+python local_chat.py --config "C:\roles\your-role\roleweaver.config.csv"
 ```
 
 ## Environment Variables
 
-The recommended prefix is `ROLEWEAVER_`:
+For deployment, the same config can be selected with:
 
 ```powershell
-$env:ROLEWEAVER_ROLE_NAME="Your Role"
-$env:ROLEWEAVER_USER_SUBJECT="用户"
-$env:ROLEWEAVER_BASE_MODEL_PATH="C:\models\base-model"
-$env:ROLEWEAVER_LORA_PATH="C:\models\your-role-lora"
-$env:ROLEWEAVER_SKILL_FILE="C:\roles\your-role\SKILL.md"
-$env:ROLEWEAVER_SESSION_ROOT="C:\roleweaver-sessions"
+$env:ROLEWEAVER_CONFIG_FILE="C:\roles\your-role\roleweaver.config.csv"
 ```
 
-`MISUZU_*` variables are still accepted by the LINE bot for migration compatibility.
+Direct `ROLEWEAVER_*` variables and `MISUZU_*` variables are still accepted for migration compatibility, but normal use should go through the config file.
 
 ## LINE Bot
 
@@ -80,9 +78,5 @@ python base_model_probe.py --base-model-path "C:\models\base-model"
 Probe a LoRA adapter through the full RoleWeaver runtime:
 
 ```powershell
-python adapter_probe.py `
-  --role-name "Your Role" `
-  --base-model-path "C:\models\base-model" `
-  --lora-path "C:\models\your-role-lora" `
-  --skill-file "C:\roles\your-role\SKILL.md"
+python adapter_probe.py
 ```

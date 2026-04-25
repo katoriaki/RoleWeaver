@@ -12,10 +12,7 @@ os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
 
 from memory_runtime import MemoryRuntime, now_ts
 from role_config import (
-    DEFAULT_BASE_MODEL_PATH,
     DEFAULT_IDLE_CONSOLIDATION_SECONDS,
-    DEFAULT_LORA_PATH,
-    DEFAULT_SESSION_ROOT,
     RoleConfig,
     normalize_idle_consolidation_seconds,
 )
@@ -398,6 +395,11 @@ def interactive_chat(
 
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="RoleWeaver local role chat CLI")
+    parser.add_argument(
+        "--config",
+        default=None,
+        help="CSV/TOML/JSON config file. Defaults to roleweaver.config.csv when present.",
+    )
     parser.add_argument("--role-name", default=None, help="Display name for the role")
     parser.add_argument("--user-subject", default=None, help="How memory should name the user")
     parser.add_argument("--base-model-path", default=None, help="Path to the base model")
@@ -418,6 +420,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
 def main():
     args = build_arg_parser().parse_args()
     config = RoleConfig.from_env(
+        config_file=args.config,
         role_name=args.role_name,
         user_subject=args.user_subject,
         base_model_path=args.base_model_path,

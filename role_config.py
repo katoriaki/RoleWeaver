@@ -1,4 +1,10 @@
+import csv
+import json
 import os
+try:
+    import tomllib
+except ModuleNotFoundError:  # pragma: no cover - Python < 3.11 can still use CSV/JSON configs.
+    tomllib = None
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -10,6 +16,11 @@ DEFAULT_BASE_MODEL_PATH = str(PROJECT_ROOT / "qwen35-9b")
 DEFAULT_LORA_PATH = str(PROJECT_ROOT / "meiling-qwen35-9b-lora")
 DEFAULT_SESSION_ROOT = str(PROJECT_ROOT / "data" / "sessions")
 DEFAULT_IDLE_CONSOLIDATION_SECONDS = 600
+DEFAULT_CONFIG_FILENAMES = (
+    "roleweaver.config.csv",
+    "roleweaver.config.toml",
+    "roleweaver.config.json",
+)
 
 NORMAL_SYSTEM_PROMPT = "正常回答，简洁直接。"
 
@@ -51,8 +62,26 @@ def _split_env_list(value: Optional[str]) -> List[str]:
     return [item.strip() for item in value.split(",") if item.strip()]
 
 
-def _coalesce(value, fallback):
-    return fallback if value is None else value
+def _clean_config_value(value):
+    if value is None:
+        return None
+    if isinstance(value, str):
+        value = value.strip().strip('"').strip("'")
+        return value or None
+    return value
+
+
+def _compact_path_name(path: Optional[str]) -> Optional[str]:
+    if not path:
+        return None
+    candidate = Path(path)
+    if candidate.name.lower() == "skill.md" and candidate.parent.name:
+        return candidate.parent.name
+    return candidate.stem or candidate.name or None
+
+
+def infer_role_name(lora_path: Optional[str] = None, skill_file: Optional[str] = None) -> str:
+    return _compact_path_name(skill_file) or _compact_path_name(lora_path) or "RoleWeaver"
 
 
 def normalize_idle_consolidation_seconds(
@@ -73,6 +102,85 @@ def read_optional_text(path: Optional[str]) -> str:
     if not candidate.exists():
         raise FileNotFoundError(f"Skill file not found: {candidate}")
     return candidate.read_text(encoding="utf-8").strip()
+
+
+def discover_config_file(explicit_path: Optional[str] = None) -> Optional[Path]:
+    requested = explicit_path or os.getenv("ROLEWEAVER_CONFIG_FILE")
+    if requested:
+        candidate = Path(requested).expanduser()
+        if not candidate.exists():
+            raise FileNotFoundError(f"RoleWeaver config file not found: {candidate}")
+        return candidate
+
+    for filename in DEFAULT_CONFIG_FILENAMES:
+        candidate = PROJECT_ROOT / filename
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def _read_csv_config(path: Path) -> Dict:
+    values: Dict[str, str] = {}
+    with path.open("r", encoding="utf-8-sig", newline="") as f:
+        reader = csv.reader(f)
+        rows = list(reader)
+
+    if not rows:
+        return values
+
+    start_index = 0
+    header = [cell.strip().lower() for cell in rows[0]]
+    if "key" in header and "value" in header:
+        start_index = 1
+        key_index = header.index("key")
+        value_index = header.index("value")
+    else:
+        key_index = 0
+        value_index = 1
+
+    for row in rows[start_index:]:
+        if len(row) <= max(key_index, value_index):
+            continue
+        key = row[key_index].strip()
+        if not key or key.startswith("#"):
+            continue
+        value = _clean_config_value(row[value_index])
+        if value is not None:
+            values[key] = value
+    return values
+
+
+def _read_toml_config(path: Path) -> Dict:
+    if tomllib is None:
+        raise RuntimeError("TOML config requires Python 3.11+; use roleweaver.config.csv instead.")
+    data = tomllib.loads(path.read_text(encoding="utf-8"))
+    if "roleweaver" in data and isinstance(data["roleweaver"], dict):
+        return dict(data["roleweaver"])
+    return dict(data)
+
+
+def _read_json_config(path: Path) -> Dict:
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if "roleweaver" in data and isinstance(data["roleweaver"], dict):
+        return dict(data["roleweaver"])
+    return data if isinstance(data, dict) else {}
+
+
+def load_config_values(config_file: Optional[str] = None) -> Dict:
+    path = discover_config_file(config_file)
+    if path is None:
+        return {}
+    suffix = path.suffix.lower()
+    if suffix == ".csv":
+        values = _read_csv_config(path)
+    elif suffix == ".toml":
+        values = _read_toml_config(path)
+    elif suffix == ".json":
+        values = _read_json_config(path)
+    else:
+        raise ValueError(f"Unsupported config file type: {path}")
+    values["_config_file"] = str(path)
+    return values
 
 
 @dataclass
@@ -98,44 +206,44 @@ class RoleConfig:
 
     @classmethod
     def from_env(cls, **overrides) -> "RoleConfig":
-        skill_file = overrides.pop("skill_file", None) or os.getenv("ROLEWEAVER_SKILL_FILE")
+        config_file = overrides.pop("config_file", None)
+        file_values = load_config_values(config_file)
+
+        def pick(key: str, env_name: str, default=None):
+            explicit = overrides.pop(key, None)
+            if explicit is not None:
+                return explicit
+            file_value = _clean_config_value(file_values.get(key))
+            if file_value is not None:
+                return file_value
+            env_value = _clean_config_value(os.getenv(env_name))
+            if env_value is not None:
+                return env_value
+            return default
+
+        skill_file = pick("skill_file", "ROLEWEAVER_SKILL_FILE")
         skill_text = overrides.pop("skill_text", "") or read_optional_text(skill_file)
 
-        role_name = _coalesce(overrides.pop("role_name", None), os.getenv("ROLEWEAVER_ROLE_NAME", "RoleWeaver"))
+        base_model_path = pick("base_model_path", "ROLEWEAVER_BASE_MODEL_PATH", DEFAULT_BASE_MODEL_PATH)
+        lora_path = pick("lora_path", "ROLEWEAVER_LORA_PATH", DEFAULT_LORA_PATH)
+        role_name = pick("role_name", "ROLEWEAVER_ROLE_NAME", infer_role_name(lora_path, skill_file))
         enter_phrases = _split_env_list(os.getenv("ROLEWEAVER_ENTER_PHRASES"))
         exit_phrases = _split_env_list(os.getenv("ROLEWEAVER_EXIT_PHRASES"))
         keywords = _split_env_list(os.getenv("ROLEWEAVER_CHARACTER_KEYWORDS"))
 
         config = cls(
             role_name=role_name,
-            user_subject=_coalesce(overrides.pop("user_subject", None), os.getenv("ROLEWEAVER_USER_SUBJECT", "用户")),
-            base_model_path=_coalesce(
-                overrides.pop("base_model_path", None),
-                os.getenv("ROLEWEAVER_BASE_MODEL_PATH", DEFAULT_BASE_MODEL_PATH),
-            ),
-            lora_path=_coalesce(
-                overrides.pop("lora_path", None),
-                os.getenv("ROLEWEAVER_LORA_PATH", DEFAULT_LORA_PATH),
-            ),
-            session_root=_coalesce(
-                overrides.pop("session_root", None),
-                os.getenv("ROLEWEAVER_SESSION_ROOT", DEFAULT_SESSION_ROOT),
-            ),
-            system_prompt=_coalesce(
-                overrides.pop("system_prompt", None),
-                os.getenv("ROLEWEAVER_SYSTEM_PROMPT", DEFAULT_ROLE_SYSTEM_PROMPT),
-            ),
-            normal_system_prompt=_coalesce(
-                overrides.pop("normal_system_prompt", None),
-                os.getenv("ROLEWEAVER_NORMAL_SYSTEM_PROMPT", NORMAL_SYSTEM_PROMPT),
-            ),
+            user_subject=pick("user_subject", "ROLEWEAVER_USER_SUBJECT", "用户"),
+            base_model_path=base_model_path,
+            lora_path=lora_path,
+            session_root=pick("session_root", "ROLEWEAVER_SESSION_ROOT", DEFAULT_SESSION_ROOT),
+            system_prompt=pick("system_prompt", "ROLEWEAVER_SYSTEM_PROMPT", DEFAULT_ROLE_SYSTEM_PROMPT),
+            normal_system_prompt=pick("normal_system_prompt", "ROLEWEAVER_NORMAL_SYSTEM_PROMPT", NORMAL_SYSTEM_PROMPT),
             skill_file=skill_file,
             skill_text=skill_text,
             role_mode_default=overrides.pop("role_mode_default", True),
             idle_consolidation_seconds=normalize_idle_consolidation_seconds(
-                overrides.pop("idle_consolidation_seconds", None)
-                if "idle_consolidation_seconds" in overrides
-                else os.getenv("ROLEWEAVER_IDLE_CONSOLIDATION_SECONDS"),
+                pick("idle_consolidation_seconds", "ROLEWEAVER_IDLE_CONSOLIDATION_SECONDS"),
             ),
         )
 

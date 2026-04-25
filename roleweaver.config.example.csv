@@ -1,0 +1,4 @@
+key,value,notes
+base_model_path,C:\models\base-model,Required: local path to the base model directory
+lora_path,C:\models\your-role-lora,Required: local path to the trained LoRA adapter directory
+skill_file,C:\roles\your-role\SKILL.md,Optional: local path to the role SKILL.md file

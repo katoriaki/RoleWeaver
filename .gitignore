@@ -34,5 +34,9 @@ knowledge_graph_v1.json
 .env
 .env.*
 !*.example
+roleweaver.config.csv
+roleweaver.config.toml
+roleweaver.config.json
+!roleweaver.config.example.csv
 data/line_sessions/
 data/sessions/
