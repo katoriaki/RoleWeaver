@@ -294,8 +294,19 @@ def create_app(config_file: Optional[str] = None) -> FastAPI:
             service_cache[key] = RoleChatService(config=config)
         return service_cache[key]
 
+    def snapshot_for_session(session_id: Optional[str]) -> Optional[Dict]:
+        if not session_id:
+            return None
+        if session_id in session_config_overrides:
+            return session_config_overrides[session_id]
+        summary = _find_session(config_file, session_id)
+        if summary is None:
+            return None
+        session_config_overrides[session_id] = dict(summary.settings_snapshot)
+        return session_config_overrides[session_id]
+
     def get_service_for_session(session_id: str) -> RoleChatService:
-        snapshot = session_config_overrides.get(session_id)
+        snapshot = snapshot_for_session(session_id)
         if snapshot:
             return service_for_snapshot(snapshot)
         return get_service()
@@ -311,6 +322,21 @@ def create_app(config_file: Optional[str] = None) -> FastAPI:
 
     @app.get("/health")
     async def health(session_id: Optional[str] = None):
+        snapshot = snapshot_for_session(session_id)
+        if snapshot:
+            return {
+                "status": "ok",
+                "role_name": snapshot.get("role_name") or "RoleWeaver",
+                "base_model_path": snapshot.get("base_model_path") or "",
+                "lora_path": snapshot.get("lora_path") or "",
+                "lora_enabled": bool(snapshot.get("lora_path")),
+                "skill_file": snapshot.get("skill_file") or "",
+                "skill_text_present": bool(snapshot.get("skill_text")),
+                "quantization_mode": normalize_quantization_mode(snapshot.get("quantization_mode")),
+                "memory_root": str(_session_root_for_config(config_file)),
+                "memory_scope_path": "",
+                "session_settings_persistent": True,
+            }
         service = get_service_for_session(session_id) if session_id else get_service()
         return {
             "status": "ok",

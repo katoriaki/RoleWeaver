@@ -86,7 +86,7 @@ The web UI includes a Settings panel with Chinese, Japanese, and English interfa
 
 Settings are saved back to `roleweaver.config.csv` through `POST /config`. After saving, the in-process RoleWeaver service cache is reset, so the next chat request loads the model with the new settings.
 
-The web UI also has history controls in the sidebar. `New chat` creates a timestamped session folder and records the current Settings snapshot. Clicking an older chat restores that session, reloads its saved Settings, and shows a red warning box if the saved model, LoRA, or skill paths no longer exist.
+The web UI also has history controls in the sidebar. `New chat` creates a timestamped session folder and records the current Settings snapshot. Clicking an older chat restores that session, reloads its saved Settings, and shows a red warning box if the saved model, LoRA, or skill paths no longer exist. Session settings are restored from the on-disk snapshot after a server restart; restoring a session does not need to rewrite `roleweaver.config.csv`.
 
 There is also an explicit Exit button. Exit and browser page close both trigger memory consolidation for the current session.
 
