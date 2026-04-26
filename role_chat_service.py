@@ -7,7 +7,7 @@ import threading
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 os.environ.setdefault("PYTHONUTF8", "1")
 os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
@@ -35,6 +35,22 @@ def _identity_component(value: Optional[str], fallback: str) -> str:
 
 def _short_hash(value: str) -> str:
     return hashlib.sha1(value.encode("utf-8", errors="ignore")).hexdigest()[:10]
+
+
+def _read_json_file(path: Path, default):
+    try:
+        if path.exists():
+            with path.open("r", encoding="utf-8") as f:
+                return json.load(f)
+    except Exception:
+        pass
+    return default
+
+
+def _write_json_file(path: Path, data):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
 
 
 class RoleChatService:
@@ -95,7 +111,20 @@ class RoleChatService:
     def new_session_id() -> str:
         return datetime.now().strftime("%Y%m%d-%H%M%S")
 
-    def create_session(self, session_id: Optional[str] = None) -> Dict:
+    def _settings_snapshot(self, extra_settings: Optional[Dict] = None) -> Dict:
+        snapshot = {
+            "role_name": self.config.role_name,
+            "base_model_path": self.config.base_model_path or "",
+            "lora_path": self.config.lora_path or "",
+            "skill_file": self.config.skill_file or "",
+            "skill_text": self.config.skill_text or "",
+            "quantization_mode": self.config.quantization_mode,
+        }
+        if extra_settings:
+            snapshot.update({k: v for k, v in extra_settings.items() if v is not None})
+        return snapshot
+
+    def create_session(self, session_id: Optional[str] = None, extra_settings: Optional[Dict] = None) -> Dict:
         session_id = sanitize_session_id(session_id or self.new_session_id())
         original_session_id = session_id
         counter = 2
@@ -103,14 +132,30 @@ class RoleChatService:
             session_id = sanitize_session_id(f"{original_session_id}-{counter:02d}")
             counter += 1
         path = self._session_dir(session_id)
+        created_ts = now_ts()
+        snapshot = self._settings_snapshot(extra_settings=extra_settings)
         self._save_session_meta(
             session_id,
-            {"role_mode": self.config.role_mode_default, "last_activity_ts": None},
+            {
+                "session_id": session_id,
+                "display_name": session_id,
+                "created_ts": created_ts,
+                "updated_ts": created_ts,
+                "role_mode": self.config.role_mode_default,
+                "last_activity_ts": None,
+                "memory_scope_path": str(self.session_root),
+                "settings_snapshot": snapshot,
+            },
         )
+        _write_json_file(path / "short_term" / "settings_snapshot.json", snapshot)
         return {
             "session_id": session_id,
+            "display_name": session_id,
+            "created_ts": created_ts,
+            "updated_ts": created_ts,
             "session_path": str(path),
             "memory_scope_path": str(self.session_root),
+            "settings_snapshot": snapshot,
         }
 
     def _ensure_model_loaded(self):
@@ -228,8 +273,41 @@ class RoleChatService:
 
     def _save_session_meta(self, session_id: str, meta: Dict):
         path = self._meta_path(session_id)
-        with path.open("w", encoding="utf-8") as f:
-            json.dump(meta, f, ensure_ascii=False, indent=2)
+        _write_json_file(path, meta)
+
+    def _transcript_path(self, session_id: str) -> Path:
+        return self._session_dir(session_id) / "short_term" / "transcript.jsonl"
+
+    def _append_transcript_turn(self, session_id: str, user_text: str, assistant_text: str):
+        path = self._transcript_path(session_id)
+        record = {
+            "timestamp": now_ts(),
+            "messages": [
+                {"role": "user", "content": user_text},
+                {"role": "assistant", "content": assistant_text},
+            ],
+        }
+        with path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+    def load_session_messages(self, session_id: str, limit: int = 200) -> List[Dict]:
+        transcript_path = self._transcript_path(session_id)
+        messages = []
+        if transcript_path.exists():
+            try:
+                with transcript_path.open("r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        item = json.loads(line)
+                        messages.extend(item.get("messages", []))
+            except Exception:
+                messages = []
+        if not messages:
+            runtime = self._runtime_for_session(session_id)
+            messages = runtime.recent_history(max_messages=limit)
+        return messages[-limit:]
 
     def _runtime_for_session(self, session_id: str) -> MemoryRuntime:
         session_id = sanitize_session_id(session_id)
@@ -427,8 +505,12 @@ class RoleChatService:
         result = self.clean_response(result)
 
         runtime.record_turn(user_text, result)
+        self._append_transcript_turn(session_id, user_text, result)
         meta["role_mode"] = role_mode
         meta["last_activity_ts"] = int(time.time())
+        meta["updated_ts"] = int(time.time())
+        if not meta.get("settings_snapshot"):
+            meta["settings_snapshot"] = self._settings_snapshot()
         self._save_session_meta(session_id, meta)
         return result
 

@@ -1,16 +1,18 @@
 import argparse
 import csv
+import json
 from functools import lru_cache
 from pathlib import Path
-from typing import Optional
+from typing import Dict, List, Optional
 
 from fastapi import FastAPI, Query
 from fastapi.responses import FileResponse, HTMLResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from role_chat_service import RoleChatService
 from role_config import (
     DEFAULT_CONFIG_FILENAMES,
+    DEFAULT_SESSION_ROOT,
     PROJECT_ROOT,
     RoleConfig,
     discover_config_file,
@@ -46,12 +48,6 @@ class ConsolidateResponse(BaseModel):
     result: dict
 
 
-class SessionResponse(BaseModel):
-    session_id: str
-    session_path: str
-    memory_scope_path: str
-
-
 class ConfigResponse(BaseModel):
     config_file: str
     base_model_path: str = ""
@@ -60,6 +56,32 @@ class ConfigResponse(BaseModel):
     skill_text: str = ""
     quantization_mode: str = "4bit"
     ui_language: str = "zh"
+
+
+class SessionResponse(BaseModel):
+    session_id: str
+    display_name: str
+    created_ts: int
+    updated_ts: int
+    session_path: str
+    memory_scope_path: str
+    settings_snapshot: Dict = Field(default_factory=dict)
+
+
+class SessionSummary(BaseModel):
+    session_id: str
+    display_name: str
+    created_ts: int = 0
+    updated_ts: int = 0
+    session_path: str
+    memory_scope_path: str
+    settings_snapshot: Dict = Field(default_factory=dict)
+    warnings: List[Dict] = Field(default_factory=list)
+
+
+class SessionDetail(SessionSummary):
+    messages: List[Dict] = Field(default_factory=list)
+    config: ConfigResponse
 
 
 class ConfigUpdate(BaseModel):
@@ -95,6 +117,17 @@ def _read_config_response(config_file: Optional[str]) -> ConfigResponse:
     )
 
 
+def _config_update_from_dict(values: Dict) -> ConfigUpdate:
+    return ConfigUpdate(
+        base_model_path=values.get("base_model_path"),
+        lora_path=values.get("lora_path"),
+        skill_file=values.get("skill_file"),
+        skill_text=values.get("skill_text"),
+        quantization_mode=values.get("quantization_mode"),
+        ui_language=values.get("ui_language"),
+    )
+
+
 def _write_config(config_file: Optional[str], update: ConfigUpdate) -> ConfigResponse:
     current = _read_config_response(config_file).dict()
     current.pop("config_file", None)
@@ -125,6 +158,109 @@ def _write_config(config_file: Optional[str], update: ConfigUpdate) -> ConfigRes
         ]:
             writer.writerow([key, current.get(key, ""), CONFIG_NOTES.get(key, "")])
     return _read_config_response(str(path))
+
+
+def _session_root_for_config(config_file: Optional[str]) -> Path:
+    path = _target_config_path(config_file)
+    values = load_config_values(str(path)) if path.exists() else {}
+    return Path(values.get("session_root") or DEFAULT_SESSION_ROOT).expanduser()
+
+
+def _read_json(path: Path, default):
+    try:
+        if path.exists():
+            with path.open("r", encoding="utf-8") as f:
+                return json.load(f)
+    except Exception:
+        pass
+    return default
+
+
+def _resolve_user_path(value: Optional[str]) -> Optional[Path]:
+    value = (value or "").strip()
+    if not value:
+        return None
+    path = Path(value).expanduser()
+    if not path.is_absolute():
+        path = PROJECT_ROOT / path
+    return path
+
+
+def _validate_settings_snapshot(snapshot: Dict) -> List[Dict]:
+    warnings = []
+    checks = [
+        ("base_model_path", snapshot.get("base_model_path"), True),
+        ("lora_path", snapshot.get("lora_path"), False),
+        ("skill_file", snapshot.get("skill_file"), False),
+    ]
+    for field, value, required in checks:
+        value = (value or "").strip()
+        if not value:
+            if required:
+                warnings.append({"field": field, "message": f"{field} is empty."})
+            continue
+        path = _resolve_user_path(value)
+        if path is not None and not path.exists():
+            warnings.append({"field": field, "message": f"{field} does not exist: {value}"})
+    return warnings
+
+
+def _load_transcript(session_path: Path, limit: int = 200) -> List[Dict]:
+    transcript_path = session_path / "short_term" / "transcript.jsonl"
+    messages = []
+    if transcript_path.exists():
+        try:
+            with transcript_path.open("r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    item = json.loads(line)
+                    messages.extend(item.get("messages", []))
+        except Exception:
+            messages = []
+    if not messages:
+        state = _read_json(session_path / "short_term" / "memory_state_v1.json", {})
+        messages = state.get("recent_history", []) if isinstance(state, dict) else []
+    return messages[-limit:]
+
+
+def _scan_sessions(config_file: Optional[str]) -> List[SessionSummary]:
+    memory_root = _session_root_for_config(config_file)
+    summaries = []
+    if not memory_root.exists():
+        return summaries
+    for meta_path in memory_root.glob("*/*/short_term/session_meta.json"):
+        meta = _read_json(meta_path, {})
+        if not isinstance(meta, dict):
+            continue
+        session_path = meta_path.parents[1]
+        snapshot = meta.get("settings_snapshot") or _read_json(
+            session_path / "short_term" / "settings_snapshot.json",
+            {},
+        )
+        if not isinstance(snapshot, dict):
+            snapshot = {}
+        session_id = meta.get("session_id") or session_path.name
+        summaries.append(SessionSummary(
+            session_id=session_id,
+            display_name=meta.get("display_name") or session_id,
+            created_ts=int(meta.get("created_ts") or 0),
+            updated_ts=int(meta.get("updated_ts") or meta.get("last_activity_ts") or 0),
+            session_path=str(session_path),
+            memory_scope_path=str(session_path.parent),
+            settings_snapshot=snapshot,
+            warnings=_validate_settings_snapshot(snapshot),
+        ))
+    summaries.sort(key=lambda item: item.updated_ts or item.created_ts, reverse=True)
+    return summaries
+
+
+def _find_session(config_file: Optional[str], session_id: str) -> Optional[SessionSummary]:
+    for summary in _scan_sessions(config_file):
+        if summary.session_id == session_id:
+            return summary
+    return None
 
 
 def create_app(config_file: Optional[str] = None) -> FastAPI:
@@ -170,6 +306,10 @@ def create_app(config_file: Optional[str] = None) -> FastAPI:
         get_service.cache_clear()
         return response
 
+    @app.get("/sessions", response_model=List[SessionSummary])
+    async def list_sessions():
+        return _scan_sessions(config_file)
+
     @app.post("/chat", response_model=ChatResponse)
     async def chat(payload: ChatRequest):
         text = get_service().chat_once(
@@ -194,7 +334,26 @@ def create_app(config_file: Optional[str] = None) -> FastAPI:
 
     @app.post("/sessions", response_model=SessionResponse)
     async def create_session():
-        return SessionResponse(**get_service().create_session())
+        current_config = _read_config_response(config_file).dict()
+        return SessionResponse(**get_service().create_session(extra_settings=current_config))
+
+    @app.get("/sessions/{session_id}", response_model=SessionDetail)
+    async def load_session(session_id: str):
+        summary = _find_session(config_file, session_id)
+        if summary is None:
+            from fastapi import HTTPException
+            raise HTTPException(status_code=404, detail=f"Session not found: {session_id}")
+        restored_config = _write_config(
+            config_file,
+            _config_update_from_dict(summary.settings_snapshot),
+        )
+        get_service.cache_clear()
+        session_path = Path(summary.session_path)
+        return SessionDetail(
+            **summary.dict(),
+            messages=_load_transcript(session_path),
+            config=restored_config,
+        )
 
     @app.post("/consolidate/{session_id}", response_model=ConsolidateResponse)
     async def consolidate(session_id: str):
