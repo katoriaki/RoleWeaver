@@ -1,134 +1,333 @@
 # RoleWeaver
 
-Weaving personalities into intelligent agents.
+**Languages:** English | [中文](README.zh-CN.md) | [日本語](README.ja.md)
 
-RoleWeaver turns a trained LoRA adapter into a reusable local role-chat runtime.
+RoleWeaver turns a base LLM, an optional LoRA adapter, and an optional role skill into a reusable local role-chat runtime with persistent per-session memory, a ChatGPT-style web UI, and training utilities for users who want to fine-tune their own adapter.
 
-Milestone 1 target:
+## Latest Update
 
-- provide a base model path
-- provide a trained LoRA adapter path
-- optionally provide a `SKILL.md`
-- get a local chat service with role prompting, per-session memory, and an optional LINE bot entrypoint
+2026-04-27:
 
-## Local Chat
+- Added a Windows launcher that reuses an existing RoleWeaver server on `127.0.0.1:8000` or automatically falls back to the next free port through `8020`.
+- Added a local web Training panel that accepts Excel, CSV, or standard JSONL datasets.
+- Added `resources/qwen35_lora_training/role_sft_template.xlsx`, a two-column training template with `user` and `assistant` headers.
+- Added editable chat display names. Internal `session_id` values remain hidden and continue to map to the original memory folders.
+- Expanded session history: restore, rename, delete, and per-session settings snapshots.
 
-Copy `roleweaver.config.example.csv` to `roleweaver.config.csv`, open it in Excel, the web Settings panel, or any text editor, then fill the values you need:
+See [CHANGELOG.md](CHANGELOG.md) for the full update announcement.
+
+## What It Does
+
+- Runs local role chat from a base model path.
+- Loads a LoRA adapter when `lora_path` is provided; leaves it unloaded when blank.
+- Loads role behavior from either a `SKILL.md` file or a small inline skill note.
+- Supports `4bit`, `8bit`, `bf16`, `fp16`, or unquantized model loading.
+- Stores memories under `memory/`, isolated by base model, LoRA, skill, and session.
+- Provides a local FastAPI API, a browser UI, a CLI chat entrypoint, and bot integration scaffolding.
+
+## Quick Start
+
+Copy the example config:
+
+```powershell
+copy roleweaver.config.example.csv roleweaver.config.csv
+```
+
+Fill these values in Excel, the web Settings panel, or a text editor:
 
 - `base_model_path`
-- `lora_path`; optional, leave blank to use only the base model
-- `skill_file`; optional
-- `skill_text`; optional inline skill notes
-- `quantization_mode`; defaults to `4bit`
-- `ui_language`; `zh`, `ja`, or `en`
+- `lora_path` optional; leave blank to run the base model directly
+- `skill_file` optional
+- `skill_text` optional short inline skill
+- `quantization_mode` default `4bit`
+- `ui_language` one of `zh`, `ja`, `en`
 
-`roleweaver.config.csv` is ignored by git so local machine paths do not get committed.
-
-```powershell
-python local_chat.py
-```
-
-You can also point to a specific config file:
+Run the Windows launcher:
 
 ```powershell
-python local_chat.py --config "C:\roles\your-role\roleweaver.config.csv"
+start_roleweaver.bat
 ```
 
-## Environment Variables
-
-For deployment, the same config can be selected with:
+Or run the CLI:
 
 ```powershell
-$env:ROLEWEAVER_CONFIG_FILE="C:\roles\your-role\roleweaver.config.csv"
+python local_chat.py --config roleweaver.config.csv
 ```
 
-Direct `ROLEWEAVER_*` variables and `MISUZU_*` variables are still accepted for migration compatibility, but normal use should go through the config file.
+## Windows Launcher And Web UI
+
+Double-click `start_roleweaver.bat` from the project root.
+
+The launcher will:
+
+- create `roleweaver.config.csv` from the example if it does not exist;
+- offer to install `fastapi` and `uvicorn` if the active Python environment is missing them;
+- open an existing RoleWeaver server if `127.0.0.1:8000` is already running RoleWeaver;
+- otherwise bind to `8000`, or the next free port through `8020`;
+- open the local web UI in your browser.
+
+The web UI supports:
+
+- Chinese, Japanese, and English interface text;
+- Settings for base model, LoRA, skill file, inline skill, quantization, and UI language;
+- chat history restore;
+- editable display names that do not rename memory folders;
+- history deletion after confirmation;
+- explicit memory consolidation on Exit or page close;
+- local LoRA training with Excel, CSV, or JSONL data.
 
 ## HTTP API
 
-On a server, expose RoleWeaver as a local HTTP API:
+Start the API manually:
 
 ```powershell
 python API.py --config roleweaver.config.csv --host 127.0.0.1 --port 8000
 ```
 
-Endpoints:
+### `GET /`
 
-- `GET /health`
-- `POST /chat`
-- `GET /chat?user_text=...`
-- `POST /consolidate/{session_id}`
-- `GET /config`
-- `POST /config`
-- `GET /sessions`
-- `POST /sessions`
-- `GET /sessions/{session_id}`
-- `PATCH /sessions/{session_id}`
-- `DELETE /sessions/{session_id}`
-- `POST /training/start`
-- `GET /training/status`
-- `POST /training/stop`
+Serves the local web UI from `web/index.html`.
 
-## Windows Launcher And Web UI
+### `GET /health`
 
-On Windows, double-click `start_roleweaver.bat` from the project root. The launcher will:
+Returns runtime health and currently selected model settings.
 
-- create `roleweaver.config.csv` from the example if it does not exist
-- remind you to fill `base_model_path`, optional `lora_path`, optional `skill_file` or `skill_text`, and `quantization_mode`
-- start the FastAPI backend on `127.0.0.1:8000`
-- open the local ChatGPT-style frontend at `http://127.0.0.1:8000/`
+Optional query:
 
-The web UI lives in `web/index.html`. It calls the same `/chat`, `/health`, and `/consolidate/{session_id}` endpoints as external clients, so it is only a thin local interface over the real RoleWeaver runtime.
+- `session_id`: if provided, health is checked against that session's saved settings snapshot.
 
-The web UI includes a Settings panel with Chinese, Japanese, and English interface text. Settings can update:
+Typical response fields:
 
+- `status`
+- `role_name`
 - `base_model_path`
-- `lora_path`; leave it blank to run the base model without LoRA
+- `lora_path`
+- `lora_enabled`
 - `skill_file`
-- short inline `skill_text`, useful when you only need a small role note instead of a full skill file
-- `quantization_mode`; supported values are `4bit`, `8bit`, `bf16`, `fp16`, and `none`
-- `ui_language`
+- `skill_text_present`
+- `quantization_mode`
+- `memory_root`
+- `memory_scope_path`
 
-Settings are saved back to `roleweaver.config.csv` through `POST /config`. After saving, the in-process RoleWeaver service cache is reset, so the next chat request loads the model with the new settings.
+### `POST /chat`
 
-The web UI also has history controls in the sidebar. `New chat` creates a timestamped session folder and records the current Settings snapshot. The internal session id stays hidden in the UI; users edit a separate display name that is stored in that session's metadata and settings snapshot without renaming the memory folder. Clicking an older chat restores that session, reloads its saved Settings, and shows a red warning box if the saved model, LoRA, or skill paths no longer exist. Session settings are restored from the on-disk snapshot after a server restart; restoring a session does not need to rewrite `roleweaver.config.csv`. Each history item can also be deleted from the sidebar after a confirmation prompt; deletion removes the matching local session folder under `memory/`.
+Generates one assistant response.
 
-There is also an explicit Exit button. Exit and browser page close both trigger memory consolidation for the current session.
+Request body:
 
-The More menu also includes a local Training panel for machines that can fine-tune directly. Fill in the base model path, a training JSONL file, and the LoRA output directory; RoleWeaver validates the file format, starts the bundled LoRA trainer as a background process, and streams the latest training log in the panel. Training logs are written under `training_runs/`, and only one training job is allowed at a time from the web UI.
-
-If the browser says `127.0.0.1 refused to connect`, the backend did not start or crashed before binding the port. Keep the launcher window open and check the printed error. Common causes are:
-
-- Python is not installed or the active environment is missing dependencies from `requirements.txt`
-- `roleweaver.config.csv` points to a model path that does not exist on this machine
-- `skill_file` points to a missing file; leave it blank if the role has no skill file
-- another process is already using port `8000`
-
-If the launcher reports `ModuleNotFoundError: No module named 'fastapi'`, install the web API dependencies:
-
-```powershell
-py -3 -m pip install fastapi "uvicorn[standard]"
+```json
+{
+  "user_text": "Hello",
+  "session_id": "web",
+  "max_new_tokens": 160
+}
 ```
 
-The launcher also offers to install these two packages automatically.
+Response:
+
+```json
+{
+  "text": "...",
+  "session_id": "web"
+}
+```
+
+### `GET /chat`
+
+Query-string version of `POST /chat`.
+
+Example:
+
+```text
+/chat?user_text=Hello&session_id=api&max_new_tokens=120
+```
+
+### `POST /consolidate/{session_id}`
+
+Runs memory consolidation for the selected session. This promotes useful pending turns into episodic memory, graph facts, and profile facts.
+
+Response:
+
+```json
+{
+  "result": {}
+}
+```
+
+### `GET /config`
+
+Returns the active editable config.
+
+Response fields:
+
+- `config_file`
+- `base_model_path`
+- `lora_path`
+- `skill_file`
+- `skill_text`
+- `quantization_mode`
+- `ui_language`
+
+### `POST /config`
+
+Updates `roleweaver.config.csv` and clears the in-process service cache so the next chat request loads the new settings.
+
+Request body:
+
+```json
+{
+  "base_model_path": "C:\\models\\base",
+  "lora_path": "C:\\models\\adapter",
+  "skill_file": "C:\\roles\\SKILL.md",
+  "skill_text": "",
+  "quantization_mode": "4bit",
+  "ui_language": "en"
+}
+```
+
+All fields are optional; omitted fields keep their current value.
+
+### `GET /sessions`
+
+Lists persisted sessions discovered under `memory/`.
+
+Each item includes:
+
+- `session_id`: internal identifier used for directories and API calls;
+- `display_name`: user-facing chat name;
+- `created_ts`
+- `updated_ts`
+- `session_path`
+- `memory_scope_path`
+- `settings_snapshot`
+- `warnings`: missing model, LoRA, or skill paths.
+
+### `POST /sessions`
+
+Creates a new session in the current model/LoRA/skill memory scope. The session folder is still timestamp based; the visible display name is stored separately.
+
+### `GET /sessions/{session_id}`
+
+Loads one session, including its transcript and saved settings snapshot.
+
+Response includes all `GET /sessions` fields plus:
+
+- `messages`
+- `config`
+
+### `PATCH /sessions/{session_id}`
+
+Updates the user-facing session display name without renaming the session folder or changing the internal `session_id`.
+
+Request body:
+
+```json
+{
+  "display_name": "My role test"
+}
+```
+
+### `DELETE /sessions/{session_id}`
+
+Deletes the matching local session folder under `memory/`. The web UI asks for confirmation before calling this endpoint.
+
+### `POST /training/start`
+
+Starts one local LoRA training job as a background process. Only one training job can run through the web API at a time.
+
+Request body:
+
+```json
+{
+  "model_path": "C:\\models\\base",
+  "data_file": "C:\\datasets\\role_sft.xlsx",
+  "output_dir": ".\\outputs\\your-role-lora",
+  "epochs": 3,
+  "learning_rate": 0.0001,
+  "per_device_train_batch_size": 2,
+  "gradient_accumulation_steps": 8,
+  "save_steps": 50,
+  "save_total_limit": 2,
+  "logging_steps": 10,
+  "lora_r": 16,
+  "lora_alpha": 32,
+  "lora_dropout": 0.05,
+  "online": false
+}
+```
+
+Supported `data_file` formats:
+
+- `.xlsx`, `.xlsm`, `.xltx`: first sheet, first row `user | assistant`, data from row 2;
+- `.csv`: first row `user,assistant`, data from row 2;
+- `.jsonl`: standard messages JSONL.
+
+Excel and CSV files are converted to JSONL under `training_runs/<run_id>/converted_dataset.jsonl` before training.
+
+### `GET /training/status`
+
+Returns the current or latest training job.
+
+Response fields:
+
+- `active`
+- `run_id`
+- `status`: `idle`, `running`, `completed`, or `failed`
+- `returncode`
+- `started_ts`
+- `command`
+- `log_path`
+- `log_tail`
+- `message`
+
+### `POST /training/stop`
+
+Requests termination of the active training subprocess.
+
+### `GET /training/template`
+
+Downloads `resources/qwen35_lora_training/role_sft_template.xlsx`.
+
+## Training Data
+
+The easiest format is the Excel template:
+
+[resources/qwen35_lora_training/role_sft_template.xlsx](resources/qwen35_lora_training/role_sft_template.xlsx)
+
+Sheet format:
+
+```text
+user | assistant
+Hi   | Hello...
+```
+
+Manual conversion:
+
+```powershell
+python resources\qwen35_lora_training\convert_excel_to_jsonl.py `
+  --input "C:\datasets\role_sft.xlsx" `
+  --output "C:\datasets\role_sft.jsonl"
+```
+
+Manual training:
+
+```powershell
+python resources\qwen35_lora_training\train_qwen35_lora_offline.py `
+  --model-path "C:\models\base-model" `
+  --data-file "C:\datasets\role_sft.jsonl" `
+  --output-dir ".\outputs\your-role-lora"
+```
+
+For Qwen-style thinking models, the trainer disables thinking tags while building SFT text.
 
 ## Memory System
 
-RoleWeaver uses a local `memory/` directory with two levels of isolation. First, it creates a memory scope for the current base model, LoRA adapter, and skill configuration. Then each session gets its own timestamp-based folder inside that scope. Different model/LoRA/skill combinations do not share memory unless you deliberately point them at the same files and session.
-
-The memory layer has four parts:
-
-- recent dialogue window: keeps the latest turns available for immediate continuity
-- episodic memory: stores selected long-term events, preferences, and relationship facts
-- knowledge graph: stores structured triples such as user facts, role facts, and stable relationship information
-- profile view: builds a compact user profile from graph facts and injects it into future prompts
-
-The on-disk layout is:
+RoleWeaver stores memory under:
 
 ```text
 memory/
   base__lora__skill__hash/
-    20260426-153012/
+    session-id/
       short_term/
         session_meta.json
         settings_snapshot.json
@@ -142,92 +341,45 @@ memory/
         user_profile_v1.json
 ```
 
-At chat time, RoleWeaver builds a memory context packet from the current user message. It retrieves relevant episodic memories, profile facts, and character knowledge, then renders them into the prompt as sections.
+The system uses:
 
-Memory writing is deliberately slower than normal reply generation. New turns first enter a pending buffer. When the session has been idle for a while, or when you manually call consolidation, RoleWeaver asks the memory rules and optional model judge which details are worth keeping. Useful facts are written into episodic memory or the knowledge graph; noisy chat is left out. This keeps the character from remembering every casual sentence as if it were permanent truth.
+- recent dialogue state for immediate continuity;
+- episodic memory for selected long-term events and preferences;
+- graph memory for structured facts;
+- profile projection for compact user context.
 
-Manual consolidation is available through the local chat command:
+If embedding dependencies or an embedding model fail, retrieval falls back to lexical search instead of crashing the runtime.
 
-```text
-/consolidate now
-```
+## Bot Integrations
 
-The HTTP API exposes the same operation:
+### LINE
 
-```powershell
-Invoke-RestMethod -Method Post http://127.0.0.1:8000/consolidate/default
-```
-
-Useful local memory debug commands:
-
-```text
-/mem list
-/mem search
-/profile show
-/pending show
-/writeplan show
-/kg show
-/ctx query
-```
-
-Retrieval uses dense embeddings when an embedding model is available, with lexical search as a fallback. If `sentence-transformers`, `faiss`, `numpy`, or the selected embedding model fails to load or encode text, RoleWeaver logs the problem and continues with lexical memory search instead of crashing the chat service.
-
-## LINE Bot（Construction）
-
-The LINE app reads the same `ROLEWEAVER_*` variables plus:
-
-```powershell
-$env:LINE_CHANNEL_SECRET="..."
-$env:LINE_CHANNEL_ACCESS_TOKEN="..."
-```
-
-Run with your ASGI server of choice, for example:
+The LINE app lives in `line/`.
 
 ```powershell
 uvicorn line.app:app --host 0.0.0.0 --port 8000
 ```
 
-## QQ Voice Bot（Construction）
+Endpoints:
 
-QQ voice reply integration lives in `QQbot/`. It uses QQ official bot events, an SSH tunnel to the remote RoleWeaver text API, and local API for voice synthesis.
+- `GET /health`
+- `POST /callback`
+
+### QQ Voice Bot
+
+QQ voice reply integration lives in `QQbot/`. It combines QQ official bot events, SSH access to the remote RoleWeaver text API, and a local voice synthesis API such as GPT-SoVITS.
 
 ```powershell
 python -m QQbot.main --config QQbot\qq_voice_bot.config.csv
 ```
 
-## Training A New Adapter
+The minimal remote text API is:
 
-For the original offline Qwen3.5-9B LoRA training workflow, see `resources/qwen35_lora_training/`. The web UI's Training panel calls this same script.
+- `GET /health`
+- `POST /chat`
 
-Training data must be JSONL. Each non-empty line must be one object with a `messages` array:
+## Notes
 
-```json
-{"messages":[{"role":"user","content":"你是？"},{"role":"assistant","content":"我是..."}]}
-```
-
-Allowed message roles are `system`, `user`, and `assistant`; `content` must be a non-empty string.
-
-```powershell
-python resources\qwen35_lora_training\train_qwen35_lora_offline.py `
-  --model-path "C:\models\base-model" `
-  --data-file "C:\datasets\role_sft.jsonl" `
-  --output-dir ".\outputs\your-role-lora"
-```
-
-The adapter is saved in the output directory you provide. The script defaults to offline Hugging Face loading; pass `--online` if the model or tokenizer should be resolved through the network.
-
-For Qwen-style thinking models, the bundled trainer disables thinking tags when it builds supervised fine-tuning text, so the adapter learns the assistant answer rather than empty `<think>` blocks.
-
-## Utility Probes
-
-Probe a base model:
-
-```powershell
-python base_model_probe.py --base-model-path "C:\models\base-model"
-```
-
-Probe a LoRA adapter through the full RoleWeaver runtime:
-
-```powershell
-python adapter_probe.py
-```
+- `roleweaver.config.csv` is ignored by git so local model paths do not leak.
+- `memory/`, `training_runs/`, and generated outputs are ignored by git.
+- The project is currently a practical local framework, not yet a polished packaged application.

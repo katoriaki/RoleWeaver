@@ -552,6 +552,16 @@
       background: #ffffff;
     }
 
+    .inline-link {
+      color: var(--accent-dark);
+      font-weight: 650;
+      text-decoration: none;
+    }
+
+    .inline-link:hover {
+      text-decoration: underline;
+    }
+
     .primary-button {
       background: var(--accent);
       color: #fff;
@@ -762,6 +772,9 @@
       <form id="trainingForm">
         <div class="settings-grid">
           <p class="settings-note" data-i18n="trainingFormatNote">Dataset format: JSONL, each line must contain messages with role/content fields.</p>
+          <p class="settings-note">
+            <a class="inline-link" href="/training/template" data-i18n="downloadTrainingTemplate">Download Excel template</a>
+          </p>
 
           <div class="field">
             <label for="trainModelPath" data-i18n="trainModelPath">Base model path</label>
@@ -878,9 +891,10 @@
         noSkill: "未配置 skill",
         inlineSkillPresent: "已填写内联 skill",
         loraDisabled: "LoRA: disabled",
-        trainingFormatNote: "训练文件格式：JSONL，每行一个对象，必须包含 messages 数组；每条 message 需要 role 和 content。",
+        trainingFormatNote: "训练文件可用 Excel/CSV：第一行必须是 user、assistant；从第二行开始自动转成标准 JSONL。也可直接传标准 messages JSONL。",
+        downloadTrainingTemplate: "下载标准 Excel 模板",
         trainModelPath: "原始模型路径",
-        trainDataFile: "训练 JSONL 文件",
+        trainDataFile: "训练 Excel/CSV/JSONL 文件",
         trainOutputDir: "LoRA 输出目录",
         epochs: "轮数",
         learningRate: "学习率",
@@ -954,9 +968,10 @@
         noSkill: "skill 未設定",
         inlineSkillPresent: "インライン skill あり",
         loraDisabled: "LoRA: disabled",
-        trainingFormatNote: "訓練ファイル形式：JSONL。各行は messages 配列を持つオブジェクトで、各 message には role と content が必要です。",
+        trainingFormatNote: "訓練ファイルは Excel/CSV に対応：1行目は user、assistant。2行目以降を標準 JSONL に自動変換します。標準 messages JSONL も直接使えます。",
+        downloadTrainingTemplate: "標準 Excel テンプレートをダウンロード",
         trainModelPath: "元モデルのパス",
-        trainDataFile: "訓練 JSONL ファイル",
+        trainDataFile: "訓練 Excel/CSV/JSONL ファイル",
         trainOutputDir: "LoRA 出力ディレクトリ",
         epochs: "エポック",
         learningRate: "学習率",
@@ -1030,9 +1045,10 @@
         noSkill: "No skill configured",
         inlineSkillPresent: "Inline skill present",
         loraDisabled: "LoRA: disabled",
-        trainingFormatNote: "Dataset format: JSONL, one object per line. Each object must contain a messages array; every message needs role and content.",
+        trainingFormatNote: "Training files can be Excel/CSV: first row must be user, assistant. Rows from line 2 are converted to standard JSONL. Standard messages JSONL also works.",
+        downloadTrainingTemplate: "Download Excel template",
         trainModelPath: "Base model path",
-        trainDataFile: "Training JSONL file",
+        trainDataFile: "Training Excel/CSV/JSONL file",
         trainOutputDir: "LoRA output directory",
         epochs: "Epochs",
         learningRate: "Learning rate",

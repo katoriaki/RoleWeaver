@@ -11,16 +11,29 @@ These scripts are examples for users who want to train their own adapter. RoleWe
 ## Files
 
 - `train_qwen35_lora_offline.py`: offline LoRA SFT training script for Qwen3.5-9B style local checkpoints.
+- `convert_excel_to_jsonl.py`: convert a two-column Excel/CSV table into the JSONL format used by the trainer.
+- `role_sft_template.xlsx`: standard user/assistant Excel template for users who prefer spreadsheets.
 - `probe_base_model.py`: quick base-model smoke test.
 - `inspect_jsonl_dataset.py`: load and inspect a JSONL SFT dataset.
 - `probe_lora_adapter.py`: load a trained LoRA adapter and test several prompts.
 
 ## Expected Dataset Format
 
-The training script expects JSONL rows with a `messages` field:
+The web UI and API accept either:
+
+- Excel/CSV table: first row is `user, assistant`; data starts from row 2.
+- JSONL rows with a `messages` field:
 
 ```json
 {"messages":[{"role":"user","content":"..."},{"role":"assistant","content":"..."}]}
+```
+
+Manual Excel/CSV conversion:
+
+```bash
+python convert_excel_to_jsonl.py \
+  --input role_sft_template.xlsx \
+  --output role_sft.jsonl
 ```
 
 ## Example

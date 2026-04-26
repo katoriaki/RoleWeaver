@@ -1,5 +1,78 @@
 # Changelog
 
+## 2026-04-27
+
+### RoleWeaver Framework Milestone
+
+- Generalized the original role-specific HMSZ workflow into a reusable RoleWeaver runtime:
+  - base model path
+  - optional LoRA adapter path
+  - optional `SKILL.md` path
+  - optional inline skill text
+- Added CSV-based configuration through `roleweaver.config.csv` so users do not need to edit Python files for normal setup.
+- Added quantization mode selection:
+  - `4bit`
+  - `8bit`
+  - `bf16`
+  - `fp16`
+  - `none`
+- Made LoRA loading optional. Blank `lora_path` now starts the base model directly.
+
+### Web UI and Session Management
+
+- Added a ChatGPT-style local web frontend served by `API.py`.
+- Added Chinese, Japanese, and English UI text.
+- Added a Settings panel for model paths, skill paths, inline skill text, quantization mode, and UI language.
+- Added persistent chat history in the sidebar.
+- Added per-session settings snapshots so old chats restore their own base model, LoRA, skill, and quantization settings.
+- Hid internal `session_id` values from users and added editable `display_name` values for chat names.
+- Added history deletion with confirmation. Deleting a history item removes only the matching local session folder under `memory/`.
+- Fixed sidebar history scrolling so long history lists scroll inside the history area instead of compressing controls.
+
+### Memory System
+
+- Introduced memory isolation by model, LoRA, skill, and session:
+  - model/LoRA/skill combinations get separate memory scopes
+  - each chat session gets its own short-term, long-term, and graph files
+- Added exit-time and page-close memory consolidation.
+- Kept dense embedding retrieval when available and lexical fallback when embedding dependencies or models fail.
+
+### Local LoRA Training
+
+- Added a web Training panel for local machines that can fine-tune directly.
+- Added `/training/start`, `/training/status`, `/training/stop`, and `/training/template`.
+- Added `resources/qwen35_lora_training/role_sft_template.xlsx`.
+- Added `convert_excel_to_jsonl.py`, supporting:
+  - `.xlsx`
+  - `.xlsm`
+  - `.xltx`
+  - `.csv`
+  - standard messages `.jsonl`
+- Excel and CSV training files use the simple two-column format:
+
+```text
+user | assistant
+```
+
+- The backend converts spreadsheet input into standard `messages` JSONL under `training_runs/<run_id>/`.
+- The Qwen training reference now disables thinking tags when building SFT text.
+
+### Launcher and API Improvements
+
+- Added `start_roleweaver.bat`.
+- The launcher now opens an existing RoleWeaver server on `127.0.0.1:8000` instead of starting a duplicate model process.
+- If port `8000` is occupied by another process, the launcher chooses the next free port through `8020`.
+- Added full API documentation to the README.
+
+### Documentation
+
+- Rebuilt the GitHub README set:
+  - `README.md` in English
+  - `README.zh-CN.md` in Chinese
+  - `README.ja.md` in Japanese
+- Added language-switch links at the top of each README so GitHub users can switch languages with one click.
+- Expanded the README API reference with endpoint purpose, request bodies, response fields, and training formats.
+
 ## 2026-04-24
 
 ### Memory Layering Refactor

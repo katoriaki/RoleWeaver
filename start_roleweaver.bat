@@ -5,6 +5,7 @@ cd /d "%~dp0"
 
 set "ROLEWEAVER_HOST=127.0.0.1"
 set "ROLEWEAVER_PORT=8000"
+set "ROLEWEAVER_DEFAULT_PORT=8000"
 set "ROLEWEAVER_CONFIG=roleweaver.config.csv"
 set "PYTHON_CMD="
 
@@ -71,6 +72,19 @@ if not exist "%ROLEWEAVER_CONFIG%" (
   echo.
   start "" "%ROLEWEAVER_CONFIG%"
   pause
+)
+
+%PYTHON_CMD% -c "import urllib.request; urllib.request.urlopen('http://%ROLEWEAVER_HOST%:%ROLEWEAVER_PORT%/health', timeout=1).read(64)" >nul 2>nul
+if not errorlevel 1 (
+  echo [RoleWeaver] RoleWeaver already appears to be running on %ROLEWEAVER_HOST%:%ROLEWEAVER_PORT%.
+  start "" "http://%ROLEWEAVER_HOST%:%ROLEWEAVER_PORT%/"
+  exit /b 0
+)
+
+for /f %%P in ('powershell -NoProfile -ExecutionPolicy Bypass -Command "$hostName='%ROLEWEAVER_HOST%'; $start=%ROLEWEAVER_PORT%; for ($port=$start; $port -le ($start+20); $port++) { $listener=$null; try { $listener=[Net.Sockets.TcpListener]::new([Net.IPAddress]::Parse($hostName), $port); $listener.Start(); $listener.Stop(); Write-Output $port; exit 0 } catch { if ($listener) { try { $listener.Stop() } catch {} } } }; exit 1"') do set "ROLEWEAVER_PORT=%%P"
+
+if not "%ROLEWEAVER_PORT%"=="%ROLEWEAVER_DEFAULT_PORT%" (
+  echo [RoleWeaver] Port %ROLEWEAVER_DEFAULT_PORT% is busy. Using %ROLEWEAVER_PORT% instead.
 )
 
 start "" /min powershell -NoProfile -ExecutionPolicy Bypass -Command "$hostName='%ROLEWEAVER_HOST%'; $port=%ROLEWEAVER_PORT%; $deadline=(Get-Date).AddSeconds(240); while ((Get-Date) -lt $deadline) { try { $client=New-Object Net.Sockets.TcpClient; $async=$client.BeginConnect($hostName,$port,$null,$null); if ($async.AsyncWaitHandle.WaitOne(1000,$false)) { $client.EndConnect($async); $client.Close(); Start-Process ('http://{0}:{1}/' -f $hostName,$port); exit 0 }; $client.Close() } catch { Start-Sleep -Milliseconds 700 } }; exit 1"

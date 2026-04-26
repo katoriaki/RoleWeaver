@@ -29,6 +29,8 @@ from role_config import (
 
 WEB_ROOT = PROJECT_ROOT / "web"
 TRAINING_SCRIPT = PROJECT_ROOT / "resources" / "qwen35_lora_training" / "train_qwen35_lora_offline.py"
+TRAINING_EXCEL_CONVERTER = PROJECT_ROOT / "resources" / "qwen35_lora_training" / "convert_excel_to_jsonl.py"
+TRAINING_TEMPLATE = PROJECT_ROOT / "resources" / "qwen35_lora_training" / "role_sft_template.xlsx"
 TRAINING_RUNS_ROOT = PROJECT_ROOT / "training_runs"
 CONFIG_NOTES = {
     "base_model_path": "Required: local path to the base model directory",
@@ -555,20 +557,47 @@ def create_app(config_file: Optional[str] = None) -> FastAPI:
             raise HTTPException(status_code=400, detail=f"Base model path does not exist: {payload.model_path}")
         if data_file is None:
             raise HTTPException(status_code=400, detail="Training file is required.")
+        if not data_file.exists() or not data_file.is_file():
+            raise HTTPException(status_code=400, detail=f"Training file does not exist: {payload.data_file}")
         if output_dir is None:
             raise HTTPException(status_code=400, detail="Output directory is required.")
         output_dir.parent.mkdir(parents=True, exist_ok=True)
-        _validate_training_dataset(data_file)
 
         run_id = time.strftime("%Y%m%d-%H%M%S")
         run_dir = TRAINING_RUNS_ROOT / run_id
         run_dir.mkdir(parents=True, exist_ok=True)
         log_path = run_dir / "train.log"
+        training_data_file = data_file
+        if data_file.suffix.lower() in {".xlsx", ".xlsm", ".xltx", ".csv"}:
+            if not TRAINING_EXCEL_CONVERTER.exists():
+                raise HTTPException(status_code=500, detail=f"Excel converter not found: {TRAINING_EXCEL_CONVERTER}")
+            training_data_file = run_dir / "converted_dataset.jsonl"
+            convert_env = dict(os.environ)
+            convert_env.setdefault("PYTHONUTF8", "1")
+            convert_result = subprocess.run(
+                [
+                    sys.executable,
+                    str(TRAINING_EXCEL_CONVERTER),
+                    "--input", str(data_file),
+                    "--output", str(training_data_file),
+                ],
+                cwd=str(PROJECT_ROOT),
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                env=convert_env,
+            )
+            if convert_result.returncode != 0:
+                detail = (convert_result.stderr or convert_result.stdout or "Excel conversion failed.").strip()
+                raise HTTPException(status_code=400, detail=detail)
+        _validate_training_dataset(training_data_file)
+
         command = [
             sys.executable,
             str(TRAINING_SCRIPT),
             "--model-path", str(model_path),
-            "--data-file", str(data_file),
+            "--data-file", str(training_data_file),
             "--output-dir", str(output_dir),
             "--epochs", str(payload.epochs),
             "--learning-rate", str(payload.learning_rate),
@@ -589,6 +618,9 @@ def create_app(config_file: Optional[str] = None) -> FastAPI:
         with log_path.open("w", encoding="utf-8") as log_file:
             log_file.write("RoleWeaver training command:\n")
             log_file.write(" ".join(command) + "\n\n")
+            if training_data_file != data_file:
+                log_file.write(f"Converted training table: {data_file}\n")
+                log_file.write(f"JSONL used for training: {training_data_file}\n\n")
             log_file.flush()
             process = subprocess.Popen(
                 command,
@@ -610,6 +642,16 @@ def create_app(config_file: Optional[str] = None) -> FastAPI:
     @app.get("/training/status", response_model=TrainingStatusResponse)
     async def get_training_status():
         return training_status()
+
+    @app.get("/training/template")
+    async def get_training_template():
+        if not TRAINING_TEMPLATE.exists():
+            raise HTTPException(status_code=404, detail=f"Training template not found: {TRAINING_TEMPLATE}")
+        return FileResponse(
+            TRAINING_TEMPLATE,
+            filename="roleweaver_training_template.xlsx",
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
 
     @app.post("/training/stop", response_model=TrainingStatusResponse)
     async def stop_training():
