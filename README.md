@@ -67,6 +67,13 @@ On Windows, double-click `start_roleweaver.bat` from the project root. The launc
 
 The web UI lives in `web/index.html`. It calls the same `/chat`, `/health`, and `/consolidate/{session_id}` endpoints as external clients, so it is only a thin local interface over the real RoleWeaver runtime.
 
+If the browser says `127.0.0.1 refused to connect`, the backend did not start or crashed before binding the port. Keep the launcher window open and check the printed error. Common causes are:
+
+- Python is not installed or the active environment is missing dependencies from `requirements.txt`
+- `roleweaver.config.csv` points to a model path that does not exist on this machine
+- `skill_file` points to a missing file; leave it blank if the role has no skill file
+- another process is already using port `8000`
+
 ## Memory System
 
 RoleWeaver uses a per-session hybrid memory runtime. Each `session_id` gets its own memory directory, so different users or roles do not share private conversation state unless you deliberately reuse the same session.
