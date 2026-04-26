@@ -1,6 +1,10 @@
 import argparse
 import csv
 import json
+import os
+import subprocess
+import sys
+import time
 from functools import lru_cache
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -23,6 +27,8 @@ from role_config import (
 
 
 WEB_ROOT = PROJECT_ROOT / "web"
+TRAINING_SCRIPT = PROJECT_ROOT / "resources" / "qwen35_lora_training" / "train_qwen35_lora_offline.py"
+TRAINING_RUNS_ROOT = PROJECT_ROOT / "training_runs"
 CONFIG_NOTES = {
     "base_model_path": "Required: local path to the base model directory",
     "lora_path": "Optional: local path to the trained LoRA adapter directory; leave blank to use the base model only",
@@ -91,6 +97,35 @@ class ConfigUpdate(BaseModel):
     skill_text: Optional[str] = None
     quantization_mode: Optional[str] = None
     ui_language: Optional[str] = None
+
+
+class TrainingStartRequest(BaseModel):
+    model_path: str
+    data_file: str
+    output_dir: str
+    epochs: float = 3
+    learning_rate: float = 1e-4
+    per_device_train_batch_size: int = 2
+    gradient_accumulation_steps: int = 8
+    save_steps: int = 50
+    save_total_limit: int = 2
+    logging_steps: int = 10
+    lora_r: int = 16
+    lora_alpha: int = 32
+    lora_dropout: float = 0.05
+    online: bool = False
+
+
+class TrainingStatusResponse(BaseModel):
+    active: bool
+    run_id: Optional[str] = None
+    status: str = "idle"
+    returncode: Optional[int] = None
+    started_ts: Optional[int] = None
+    command: List[str] = Field(default_factory=list)
+    log_path: Optional[str] = None
+    log_tail: str = ""
+    message: str = ""
 
 
 def _target_config_path(config_file: Optional[str]) -> Path:
@@ -212,6 +247,49 @@ def _validate_settings_snapshot(snapshot: Dict) -> List[Dict]:
     return warnings
 
 
+def _tail_text(path: Path, max_chars: int = 12000) -> str:
+    try:
+        if not path.exists():
+            return ""
+        text = path.read_text(encoding="utf-8", errors="replace")
+        return text[-max_chars:]
+    except Exception as exc:
+        return f"Could not read log: {exc}"
+
+
+def _validate_training_dataset(path: Path):
+    if not path.exists():
+        raise HTTPException(status_code=400, detail=f"Training file does not exist: {path}")
+    if not path.is_file():
+        raise HTTPException(status_code=400, detail=f"Training file is not a file: {path}")
+
+    count = 0
+    with path.open("r", encoding="utf-8-sig") as f:
+        for line_no, line in enumerate(f, start=1):
+            line = line.strip()
+            if not line:
+                continue
+            count += 1
+            try:
+                item = json.loads(line)
+            except json.JSONDecodeError as exc:
+                raise HTTPException(status_code=400, detail=f"Invalid JSONL at line {line_no}: {exc}") from exc
+            messages = item.get("messages") if isinstance(item, dict) else None
+            if not isinstance(messages, list) or not messages:
+                raise HTTPException(status_code=400, detail=f"Line {line_no} must contain a non-empty messages list.")
+            for index, message in enumerate(messages):
+                if not isinstance(message, dict):
+                    raise HTTPException(status_code=400, detail=f"Line {line_no} message {index} must be an object.")
+                role = message.get("role")
+                content = message.get("content")
+                if role not in {"system", "user", "assistant"}:
+                    raise HTTPException(status_code=400, detail=f"Line {line_no} message {index} has invalid role: {role}")
+                if not isinstance(content, str) or not content.strip():
+                    raise HTTPException(status_code=400, detail=f"Line {line_no} message {index} must have non-empty string content.")
+    if count == 0:
+        raise HTTPException(status_code=400, detail="Training file contains no JSONL records.")
+
+
 def _load_transcript(session_path: Path, limit: int = 200) -> List[Dict]:
     transcript_path = session_path / "short_term" / "transcript.jsonl"
     messages = []
@@ -274,6 +352,13 @@ def create_app(config_file: Optional[str] = None) -> FastAPI:
     app = FastAPI(title="RoleWeaver API")
     session_config_overrides: Dict[str, Dict] = {}
     service_cache: Dict[str, RoleChatService] = {}
+    training_state: Dict = {
+        "process": None,
+        "run_id": None,
+        "started_ts": None,
+        "command": [],
+        "log_path": None,
+    }
 
     @lru_cache(maxsize=1)
     def get_service() -> RoleChatService:
@@ -310,6 +395,26 @@ def create_app(config_file: Optional[str] = None) -> FastAPI:
         if snapshot:
             return service_for_snapshot(snapshot)
         return get_service()
+
+    def training_status(message: str = "") -> TrainingStatusResponse:
+        process = training_state.get("process")
+        log_path_value = training_state.get("log_path")
+        log_path = Path(log_path_value) if log_path_value else None
+        if process is None:
+            return TrainingStatusResponse(active=False, message=message)
+        returncode = process.poll()
+        active = returncode is None
+        return TrainingStatusResponse(
+            active=active,
+            run_id=training_state.get("run_id"),
+            status="running" if active else ("completed" if returncode == 0 else "failed"),
+            returncode=returncode,
+            started_ts=training_state.get("started_ts"),
+            command=training_state.get("command") or [],
+            log_path=str(log_path) if log_path else None,
+            log_tail=_tail_text(log_path) if log_path else "",
+            message=message,
+        )
 
     @app.get("/", include_in_schema=False)
     async def web_index():
@@ -361,6 +466,100 @@ def create_app(config_file: Optional[str] = None) -> FastAPI:
         get_service.cache_clear()
         service_cache.clear()
         return response
+
+    @app.post("/training/start", response_model=TrainingStatusResponse)
+    async def start_training(payload: TrainingStartRequest):
+        process = training_state.get("process")
+        if process is not None and process.poll() is None:
+            raise HTTPException(status_code=409, detail="A training job is already running.")
+        if not TRAINING_SCRIPT.exists():
+            raise HTTPException(status_code=500, detail=f"Training script not found: {TRAINING_SCRIPT}")
+
+        model_path = _resolve_user_path(payload.model_path)
+        data_file = _resolve_user_path(payload.data_file)
+        output_dir = _resolve_user_path(payload.output_dir)
+        if payload.epochs <= 0 or payload.learning_rate <= 0:
+            raise HTTPException(status_code=400, detail="Epochs and learning rate must be positive.")
+        for field_name in [
+            "per_device_train_batch_size",
+            "gradient_accumulation_steps",
+            "save_steps",
+            "save_total_limit",
+            "logging_steps",
+            "lora_r",
+            "lora_alpha",
+        ]:
+            if int(getattr(payload, field_name)) <= 0:
+                raise HTTPException(status_code=400, detail=f"{field_name} must be positive.")
+        if payload.lora_dropout < 0:
+            raise HTTPException(status_code=400, detail="lora_dropout must not be negative.")
+        if model_path is None or not model_path.exists():
+            raise HTTPException(status_code=400, detail=f"Base model path does not exist: {payload.model_path}")
+        if data_file is None:
+            raise HTTPException(status_code=400, detail="Training file is required.")
+        if output_dir is None:
+            raise HTTPException(status_code=400, detail="Output directory is required.")
+        output_dir.parent.mkdir(parents=True, exist_ok=True)
+        _validate_training_dataset(data_file)
+
+        run_id = time.strftime("%Y%m%d-%H%M%S")
+        run_dir = TRAINING_RUNS_ROOT / run_id
+        run_dir.mkdir(parents=True, exist_ok=True)
+        log_path = run_dir / "train.log"
+        command = [
+            sys.executable,
+            str(TRAINING_SCRIPT),
+            "--model-path", str(model_path),
+            "--data-file", str(data_file),
+            "--output-dir", str(output_dir),
+            "--epochs", str(payload.epochs),
+            "--learning-rate", str(payload.learning_rate),
+            "--per-device-train-batch-size", str(payload.per_device_train_batch_size),
+            "--gradient-accumulation-steps", str(payload.gradient_accumulation_steps),
+            "--save-steps", str(payload.save_steps),
+            "--save-total-limit", str(payload.save_total_limit),
+            "--logging-steps", str(payload.logging_steps),
+            "--lora-r", str(payload.lora_r),
+            "--lora-alpha", str(payload.lora_alpha),
+            "--lora-dropout", str(payload.lora_dropout),
+        ]
+        if payload.online:
+            command.append("--online")
+
+        env = dict(os.environ)
+        env.setdefault("PYTHONUTF8", "1")
+        with log_path.open("w", encoding="utf-8") as log_file:
+            log_file.write("RoleWeaver training command:\n")
+            log_file.write(" ".join(command) + "\n\n")
+            log_file.flush()
+            process = subprocess.Popen(
+                command,
+                cwd=str(PROJECT_ROOT),
+                stdout=log_file,
+                stderr=subprocess.STDOUT,
+                env=env,
+            )
+
+        training_state.update({
+            "process": process,
+            "run_id": run_id,
+            "started_ts": int(time.time()),
+            "command": command,
+            "log_path": str(log_path),
+        })
+        return training_status(message="Training started.")
+
+    @app.get("/training/status", response_model=TrainingStatusResponse)
+    async def get_training_status():
+        return training_status()
+
+    @app.post("/training/stop", response_model=TrainingStatusResponse)
+    async def stop_training():
+        process = training_state.get("process")
+        if process is not None and process.poll() is None:
+            process.terminate()
+            return training_status(message="Training stop requested.")
+        return training_status(message="No active training job.")
 
     @app.get("/sessions", response_model=List[SessionSummary])
     async def list_sessions():

@@ -63,6 +63,9 @@ Endpoints:
 - `GET /sessions`
 - `POST /sessions`
 - `GET /sessions/{session_id}`
+- `POST /training/start`
+- `GET /training/status`
+- `POST /training/stop`
 
 ## Windows Launcher And Web UI
 
@@ -89,6 +92,8 @@ Settings are saved back to `roleweaver.config.csv` through `POST /config`. After
 The web UI also has history controls in the sidebar. `New chat` creates a timestamped session folder and records the current Settings snapshot. Clicking an older chat restores that session, reloads its saved Settings, and shows a red warning box if the saved model, LoRA, or skill paths no longer exist. Session settings are restored from the on-disk snapshot after a server restart; restoring a session does not need to rewrite `roleweaver.config.csv`.
 
 There is also an explicit Exit button. Exit and browser page close both trigger memory consolidation for the current session.
+
+The More menu also includes a local Training panel for machines that can fine-tune directly. Fill in the base model path, a training JSONL file, and the LoRA output directory; RoleWeaver validates the file format, starts the bundled LoRA trainer as a background process, and streams the latest training log in the panel. Training logs are written under `training_runs/`, and only one training job is allowed at a time from the web UI.
 
 If the browser says `127.0.0.1 refused to connect`, the backend did not start or crashed before binding the port. Keep the launcher window open and check the printed error. Common causes are:
 
@@ -190,16 +195,24 @@ python -m QQbot.main --config QQbot\qq_voice_bot.config.csv
 
 ## Training A New Adapter
 
-For the original offline Qwen3.5-9B LoRA training workflow, see `resources/qwen35_lora_training/`.
+For the original offline Qwen3.5-9B LoRA training workflow, see `resources/qwen35_lora_training/`. The web UI's Training panel calls this same script.
+
+Training data must be JSONL. Each non-empty line must be one object with a `messages` array:
+
+```json
+{"messages":[{"role":"user","content":"你是？"},{"role":"assistant","content":"我是..."}]}
+```
+
+Allowed message roles are `system`, `user`, and `assistant`; `content` must be a non-empty string.
 
 ```powershell
-python train_lora.py `
-  --base-model-path "C:\models\base-model" `
-  --data-path "C:\datasets\role_sft.jsonl" `
+python resources\qwen35_lora_training\train_qwen35_lora_offline.py `
+  --model-path "C:\models\base-model" `
+  --data-file "C:\datasets\role_sft.jsonl" `
   --output-dir ".\outputs\your-role-lora"
 ```
 
-The final adapter is saved under `OUTPUT_DIR\final`.
+The adapter is saved in the output directory you provide. The script defaults to offline Hugging Face loading; pass `--online` if the model or tokenizer should be resolved through the network.
 
 ## Utility Probes
 

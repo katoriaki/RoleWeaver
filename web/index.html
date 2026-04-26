@@ -462,6 +462,11 @@
       padding: 18px;
     }
 
+    .compact-grid {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      padding: 0;
+    }
+
     .settings-grid label {
       color: var(--muted);
     }
@@ -479,6 +484,45 @@
       color: var(--muted);
       font-size: 12px;
       line-height: 1.5;
+    }
+
+    .checkbox-row {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      color: var(--text);
+      font-size: 13px;
+    }
+
+    .checkbox-row input {
+      width: auto;
+    }
+
+    .training-status {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #f8fafc;
+      overflow: hidden;
+    }
+
+    .training-status div {
+      padding: 10px 12px;
+      color: var(--muted);
+      border-bottom: 1px solid var(--line);
+      font-size: 13px;
+    }
+
+    .training-status pre {
+      margin: 0;
+      padding: 12px;
+      min-height: 160px;
+      max-height: 260px;
+      overflow: auto;
+      white-space: pre-wrap;
+      word-break: break-word;
+      font: 12px Consolas, "Courier New", monospace;
+      color: #1f2933;
+      background: #ffffff;
     }
 
     .primary-button {
@@ -539,6 +583,10 @@
         grid-template-columns: 32px minmax(0, 1fr);
       }
 
+      .compact-grid {
+        grid-template-columns: 1fr 1fr;
+      }
+
       .avatar {
         width: 32px;
         height: 32px;
@@ -570,6 +618,7 @@
           <button class="side-button" id="moreButton" type="button" data-i18n="more">More</button>
           <div class="more-menu" id="moreMenu">
             <button class="menu-item" id="settingsButton" type="button" data-i18n="settings">Settings</button>
+            <button class="menu-item" id="trainingButton" type="button" data-i18n="training">Training</button>
             <button class="menu-item" id="consolidateButton" type="button" data-i18n="consolidate">Consolidate memory</button>
             <button class="menu-item" id="healthButton" type="button" data-i18n="checkRuntime">Check runtime</button>
             <button class="menu-item" id="exitButton" type="button" data-i18n="exit">Exit</button>
@@ -675,6 +724,71 @@
     </div>
   </div>
 
+  <div class="modal-backdrop" id="trainingModal">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="trainingTitle">
+      <div class="modal-header">
+        <h2 class="modal-title" id="trainingTitle" data-i18n="training">Training</h2>
+        <button class="secondary-button" id="closeTrainingButton" type="button" data-i18n="close">Close</button>
+      </div>
+
+      <form id="trainingForm">
+        <div class="settings-grid">
+          <p class="settings-note" data-i18n="trainingFormatNote">Dataset format: JSONL, each line must contain messages with role/content fields.</p>
+
+          <div class="field">
+            <label for="trainModelPath" data-i18n="trainModelPath">Base model path</label>
+            <input id="trainModelPath" autocomplete="off">
+          </div>
+
+          <div class="field">
+            <label for="trainDataFile" data-i18n="trainDataFile">Training JSONL file</label>
+            <input id="trainDataFile" autocomplete="off">
+          </div>
+
+          <div class="field">
+            <label for="trainOutputDir" data-i18n="trainOutputDir">LoRA output directory</label>
+            <input id="trainOutputDir" autocomplete="off">
+          </div>
+
+          <div class="settings-grid compact-grid">
+            <div class="field">
+              <label for="trainEpochs" data-i18n="epochs">Epochs</label>
+              <input id="trainEpochs" type="number" min="0.1" step="0.1" value="3">
+            </div>
+            <div class="field">
+              <label for="trainLearningRate" data-i18n="learningRate">Learning rate</label>
+              <input id="trainLearningRate" type="number" min="0.000001" step="0.000001" value="0.0001">
+            </div>
+            <div class="field">
+              <label for="trainBatchSize" data-i18n="batchSize">Batch size</label>
+              <input id="trainBatchSize" type="number" min="1" step="1" value="2">
+            </div>
+            <div class="field">
+              <label for="trainGradAccum" data-i18n="gradAccum">Grad accum</label>
+              <input id="trainGradAccum" type="number" min="1" step="1" value="8">
+            </div>
+          </div>
+
+          <label class="checkbox-row">
+            <input id="trainOnline" type="checkbox">
+            <span data-i18n="allowOnline">Allow Hugging Face/network access</span>
+          </label>
+
+          <div class="training-status">
+            <div id="trainingStatusText" data-i18n="trainingIdle">No training job running.</div>
+            <pre id="trainingLog"></pre>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button class="secondary-button" id="refreshTrainingButton" type="button" data-i18n="refresh">Refresh</button>
+          <button class="secondary-button" id="stopTrainingButton" type="button" data-i18n="stopTraining" disabled>Stop</button>
+          <button class="primary-button" id="startTrainingButton" type="submit" data-i18n="startTraining">Start training</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <div class="toast" id="toast"></div>
 
   <script>
@@ -686,6 +800,7 @@
         newChat: "新会话",
         more: "更多",
         settings: "设置",
+        training: "训练",
         consolidate: "整理记忆",
         checkRuntime: "检查运行状态",
         exit: "退出",
@@ -728,6 +843,24 @@
         noSkill: "未配置 skill",
         inlineSkillPresent: "已填写内联 skill",
         loraDisabled: "LoRA: disabled",
+        trainingFormatNote: "训练文件格式：JSONL，每行一个对象，必须包含 messages 数组；每条 message 需要 role 和 content。",
+        trainModelPath: "原始模型路径",
+        trainDataFile: "训练 JSONL 文件",
+        trainOutputDir: "LoRA 输出目录",
+        epochs: "轮数",
+        learningRate: "学习率",
+        batchSize: "批大小",
+        gradAccum: "梯度累积",
+        allowOnline: "允许访问 Hugging Face/网络",
+        trainingIdle: "当前没有训练任务。",
+        refresh: "刷新",
+        stopTraining: "停止",
+        startTraining: "开始训练",
+        trainingStarted: "训练已启动。",
+        trainingRunning: "训练中",
+        trainingCompleted: "训练完成",
+        trainingFailed: "训练失败",
+        trainingStopped: "已请求停止训练",
       },
       ja: {
         tagline: "ローカル・ロールチャット実行環境",
@@ -736,6 +869,7 @@
         newChat: "新規チャット",
         more: "その他",
         settings: "設定",
+        training: "訓練",
         consolidate: "記憶を整理",
         checkRuntime: "状態を確認",
         exit: "終了",
@@ -778,6 +912,24 @@
         noSkill: "skill 未設定",
         inlineSkillPresent: "インライン skill あり",
         loraDisabled: "LoRA: disabled",
+        trainingFormatNote: "訓練ファイル形式：JSONL。各行は messages 配列を持つオブジェクトで、各 message には role と content が必要です。",
+        trainModelPath: "元モデルのパス",
+        trainDataFile: "訓練 JSONL ファイル",
+        trainOutputDir: "LoRA 出力ディレクトリ",
+        epochs: "エポック",
+        learningRate: "学習率",
+        batchSize: "バッチサイズ",
+        gradAccum: "勾配累積",
+        allowOnline: "Hugging Face/ネットワークアクセスを許可",
+        trainingIdle: "実行中の訓練ジョブはありません。",
+        refresh: "更新",
+        stopTraining: "停止",
+        startTraining: "訓練開始",
+        trainingStarted: "訓練を開始しました。",
+        trainingRunning: "訓練中",
+        trainingCompleted: "訓練完了",
+        trainingFailed: "訓練失敗",
+        trainingStopped: "訓練停止を要求しました",
       },
       en: {
         tagline: "Local role chat runtime",
@@ -786,6 +938,7 @@
         newChat: "New chat",
         more: "More",
         settings: "Settings",
+        training: "Training",
         consolidate: "Consolidate memory",
         checkRuntime: "Check runtime",
         exit: "Exit",
@@ -828,6 +981,24 @@
         noSkill: "No skill configured",
         inlineSkillPresent: "Inline skill present",
         loraDisabled: "LoRA: disabled",
+        trainingFormatNote: "Dataset format: JSONL, one object per line. Each object must contain a messages array; every message needs role and content.",
+        trainModelPath: "Base model path",
+        trainDataFile: "Training JSONL file",
+        trainOutputDir: "LoRA output directory",
+        epochs: "Epochs",
+        learningRate: "Learning rate",
+        batchSize: "Batch size",
+        gradAccum: "Grad accum",
+        allowOnline: "Allow Hugging Face/network access",
+        trainingIdle: "No training job running.",
+        refresh: "Refresh",
+        stopTraining: "Stop",
+        startTraining: "Start training",
+        trainingStarted: "Training started.",
+        trainingRunning: "Training",
+        trainingCompleted: "Training complete",
+        trainingFailed: "Training failed",
+        trainingStopped: "Training stop requested",
       },
     };
 
@@ -838,6 +1009,7 @@
       config: null,
       closingConsolidated: false,
       sessions: [],
+      trainingTimer: null,
     };
 
     const messagesEl = document.getElementById("messages");
@@ -862,6 +1034,19 @@
     const skillFile = document.getElementById("skillFile");
     const skillText = document.getElementById("skillText");
     const quantizationMode = document.getElementById("quantizationMode");
+    const trainingModal = document.getElementById("trainingModal");
+    const trainModelPath = document.getElementById("trainModelPath");
+    const trainDataFile = document.getElementById("trainDataFile");
+    const trainOutputDir = document.getElementById("trainOutputDir");
+    const trainEpochs = document.getElementById("trainEpochs");
+    const trainLearningRate = document.getElementById("trainLearningRate");
+    const trainBatchSize = document.getElementById("trainBatchSize");
+    const trainGradAccum = document.getElementById("trainGradAccum");
+    const trainOnline = document.getElementById("trainOnline");
+    const trainingStatusText = document.getElementById("trainingStatusText");
+    const trainingLog = document.getElementById("trainingLog");
+    const startTrainingButton = document.getElementById("startTrainingButton");
+    const stopTrainingButton = document.getElementById("stopTrainingButton");
 
     function t(key) {
       return (i18n[state.language] && i18n[state.language][key]) || i18n.en[key] || key;
@@ -984,6 +1169,60 @@
       skillText.value = config.skill_text || "";
       quantizationMode.value = config.quantization_mode || "4bit";
       applyLanguage(languageSelect.value);
+    }
+
+    function parseErrorText(text) {
+      try {
+        const parsed = JSON.parse(text);
+        return parsed.detail || text;
+      } catch (err) {
+        return text;
+      }
+    }
+
+    function trainingStatusLabel(data) {
+      if (!data || data.status === "idle") return t("trainingIdle");
+      if (data.status === "running") return `${t("trainingRunning")} · ${data.run_id || ""}`;
+      if (data.status === "completed") return `${t("trainingCompleted")} · ${data.run_id || ""}`;
+      if (data.status === "failed") return `${t("trainingFailed")} · ${data.run_id || ""} · code ${data.returncode}`;
+      return data.status || t("trainingIdle");
+    }
+
+    function setTrainingStatus(data) {
+      trainingStatusText.textContent = trainingStatusLabel(data);
+      trainingLog.textContent = data.log_tail || "";
+      stopTrainingButton.disabled = !data.active;
+      startTrainingButton.disabled = !!data.active;
+      if (data.active && !state.trainingTimer) {
+        state.trainingTimer = window.setInterval(refreshTrainingStatus, 2500);
+      }
+      if (!data.active && state.trainingTimer) {
+        window.clearInterval(state.trainingTimer);
+        state.trainingTimer = null;
+      }
+    }
+
+    async function refreshTrainingStatus() {
+      try {
+        const res = await fetch("/training/status");
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        setTrainingStatus(data);
+        return data;
+      } catch (err) {
+        trainingStatusText.textContent = `${t("requestFailed")}：${err.message}`;
+        trainingLog.textContent = "";
+        stopTrainingButton.disabled = true;
+        startTrainingButton.disabled = false;
+        return null;
+      }
+    }
+
+    function prefillTrainingForm() {
+      trainModelPath.value = baseModelPath.value || (state.config && state.config.base_model_path) || "";
+      if (!trainOutputDir.value) {
+        trainOutputDir.value = "outputs/your-role-lora";
+      }
     }
 
     async function loadConfig() {
@@ -1114,6 +1353,47 @@
       }
     }
 
+    async function startTraining(event) {
+      event.preventDefault();
+      try {
+        const res = await fetch("/training/start", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model_path: trainModelPath.value.trim(),
+            data_file: trainDataFile.value.trim(),
+            output_dir: trainOutputDir.value.trim(),
+            epochs: Number(trainEpochs.value || 3),
+            learning_rate: Number(trainLearningRate.value || 0.0001),
+            per_device_train_batch_size: Number(trainBatchSize.value || 2),
+            gradient_accumulation_steps: Number(trainGradAccum.value || 8),
+            online: trainOnline.checked,
+          }),
+        });
+        if (!res.ok) {
+          const detail = await res.text();
+          throw new Error(parseErrorText(detail) || `HTTP ${res.status}`);
+        }
+        const data = await res.json();
+        setTrainingStatus(data);
+        showToast(t("trainingStarted"));
+      } catch (err) {
+        showToast(`${t("requestFailed")}：${err.message}`);
+      }
+    }
+
+    async function stopTraining() {
+      try {
+        const res = await fetch("/training/stop", { method: "POST" });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        setTrainingStatus(data);
+        showToast(t("trainingStopped"));
+      } catch (err) {
+        showToast(`${t("requestFailed")}：${err.message}`);
+      }
+    }
+
     document.getElementById("chatForm").addEventListener("submit", (event) => {
       event.preventDefault();
       const text = promptInput.value.trim();
@@ -1161,6 +1441,32 @@
         settingsModal.classList.remove("open");
       }
     });
+
+    document.getElementById("trainingButton").addEventListener("click", async () => {
+      closeMoreMenu();
+      try {
+        await loadConfig();
+      } catch (err) {
+        showToast(`${t("requestFailed")}：${err.message}`);
+      }
+      prefillTrainingForm();
+      await refreshTrainingStatus();
+      trainingModal.classList.add("open");
+    });
+
+    document.getElementById("closeTrainingButton").addEventListener("click", () => {
+      trainingModal.classList.remove("open");
+    });
+
+    trainingModal.addEventListener("click", (event) => {
+      if (event.target === trainingModal) {
+        trainingModal.classList.remove("open");
+      }
+    });
+
+    document.getElementById("trainingForm").addEventListener("submit", startTraining);
+    document.getElementById("refreshTrainingButton").addEventListener("click", refreshTrainingStatus);
+    stopTrainingButton.addEventListener("click", stopTraining);
 
     languageSelect.addEventListener("change", () => {
       applyLanguage(languageSelect.value);
