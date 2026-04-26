@@ -946,7 +946,7 @@
         renderMessages();
         fillSettings(data.config);
         showWarning(data.warnings || []);
-        await checkHealth();
+        await checkHealth({ refreshConfig: false });
         await listSessions();
         showToast(t("historyLoaded"));
       } catch (err) {
@@ -966,10 +966,12 @@
       }
     }
 
-    async function checkHealth() {
+    async function checkHealth(options = {}) {
       try {
-        const config = await loadConfig();
-        const res = await fetch("/health");
+        const refreshConfig = options.refreshConfig ?? !state.config;
+        const config = refreshConfig ? await loadConfig() : (state.config || {});
+        const sessionId = encodeURIComponent(sessionInput.value.trim() || "web");
+        const res = await fetch(`/health?session_id=${sessionId}`);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
         healthPill.textContent = t("online");
@@ -1115,7 +1117,7 @@
         fillSettings(config);
         settingsModal.classList.remove("open");
         showToast(t("saved"));
-        await checkHealth();
+        await checkHealth({ refreshConfig: false });
         await listSessions();
       } catch (err) {
         showToast(`${t("saveFailed")}：${err.message}`);
@@ -1146,7 +1148,7 @@
       }
     });
 
-    document.getElementById("healthButton").addEventListener("click", checkHealth);
+    document.getElementById("healthButton").addEventListener("click", () => checkHealth({ refreshConfig: false }));
 
     window.addEventListener("pagehide", consolidateWithBeacon);
     window.addEventListener("beforeunload", consolidateWithBeacon);
@@ -1158,7 +1160,7 @@
     });
     applyLanguage(state.language);
     renderMessages();
-    checkHealth().then(() => {
+    checkHealth({ refreshConfig: true }).then(() => {
       listSessions();
       if (!localStorage.getItem("roleweaver.sessionId")) {
         createServerSession().catch(() => {});

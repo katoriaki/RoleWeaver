@@ -5,7 +5,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel, Field
 
@@ -117,14 +117,15 @@ def _read_config_response(config_file: Optional[str]) -> ConfigResponse:
     )
 
 
-def _config_update_from_dict(values: Dict) -> ConfigUpdate:
-    return ConfigUpdate(
-        base_model_path=values.get("base_model_path"),
-        lora_path=values.get("lora_path"),
-        skill_file=values.get("skill_file"),
-        skill_text=values.get("skill_text"),
-        quantization_mode=values.get("quantization_mode"),
-        ui_language=values.get("ui_language"),
+def _config_response_from_snapshot(config_file: Optional[str], snapshot: Dict) -> ConfigResponse:
+    return ConfigResponse(
+        config_file=str(_target_config_path(config_file)),
+        base_model_path=snapshot.get("base_model_path") or "",
+        lora_path=snapshot.get("lora_path") or "",
+        skill_file=snapshot.get("skill_file") or "",
+        skill_text=snapshot.get("skill_text") or snapshot.get("inline_skill") or "",
+        quantization_mode=normalize_quantization_mode(snapshot.get("quantization_mode")),
+        ui_language=(snapshot.get("ui_language") or "zh").lower(),
     )
 
 
@@ -145,18 +146,24 @@ def _write_config(config_file: Optional[str], update: ConfigUpdate) -> ConfigRes
 
     path = _target_config_path(config_file)
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8-sig", newline="") as f:
-        writer = csv.writer(f)
-        writer.writerow(["key", "value", "notes"])
-        for key in [
-            "base_model_path",
-            "lora_path",
-            "skill_file",
-            "skill_text",
-            "quantization_mode",
-            "ui_language",
-        ]:
-            writer.writerow([key, current.get(key, ""), CONFIG_NOTES.get(key, "")])
+    try:
+        with path.open("w", encoding="utf-8-sig", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(["key", "value", "notes"])
+            for key in [
+                "base_model_path",
+                "lora_path",
+                "skill_file",
+                "skill_text",
+                "quantization_mode",
+                "ui_language",
+            ]:
+                writer.writerow([key, current.get(key, ""), CONFIG_NOTES.get(key, "")])
+    except PermissionError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Config file is locked or not writable: {path}",
+        ) from exc
     return _read_config_response(str(path))
 
 
@@ -265,11 +272,33 @@ def _find_session(config_file: Optional[str], session_id: str) -> Optional[Sessi
 
 def create_app(config_file: Optional[str] = None) -> FastAPI:
     app = FastAPI(title="RoleWeaver API")
+    session_config_overrides: Dict[str, Dict] = {}
+    service_cache: Dict[str, RoleChatService] = {}
 
     @lru_cache(maxsize=1)
     def get_service() -> RoleChatService:
         config = RoleConfig.from_env(config_file=config_file)
         return RoleChatService(config=config)
+
+    def service_for_snapshot(snapshot: Dict) -> RoleChatService:
+        key = json.dumps(snapshot, ensure_ascii=False, sort_keys=True)
+        if key not in service_cache:
+            config = RoleConfig.from_env(
+                config_file=config_file,
+                base_model_path=snapshot.get("base_model_path"),
+                lora_path=snapshot.get("lora_path") or "",
+                skill_file=snapshot.get("skill_file") or "",
+                skill_text=snapshot.get("skill_text") or "",
+                quantization_mode=snapshot.get("quantization_mode"),
+            )
+            service_cache[key] = RoleChatService(config=config)
+        return service_cache[key]
+
+    def get_service_for_session(session_id: str) -> RoleChatService:
+        snapshot = session_config_overrides.get(session_id)
+        if snapshot:
+            return service_for_snapshot(snapshot)
+        return get_service()
 
     @app.get("/", include_in_schema=False)
     async def web_index():
@@ -281,8 +310,8 @@ def create_app(config_file: Optional[str] = None) -> FastAPI:
         )
 
     @app.get("/health")
-    async def health():
-        service = get_service()
+    async def health(session_id: Optional[str] = None):
+        service = get_service_for_session(session_id) if session_id else get_service()
         return {
             "status": "ok",
             "role_name": service.config.role_name,
@@ -304,6 +333,7 @@ def create_app(config_file: Optional[str] = None) -> FastAPI:
     async def update_config(payload: ConfigUpdate):
         response = _write_config(config_file, payload)
         get_service.cache_clear()
+        service_cache.clear()
         return response
 
     @app.get("/sessions", response_model=List[SessionSummary])
@@ -312,7 +342,7 @@ def create_app(config_file: Optional[str] = None) -> FastAPI:
 
     @app.post("/chat", response_model=ChatResponse)
     async def chat(payload: ChatRequest):
-        text = get_service().chat_once(
+        text = get_service_for_session(payload.session_id).chat_once(
             user_text=payload.user_text,
             session_id=payload.session_id,
             max_new_tokens=payload.max_new_tokens,
@@ -325,7 +355,7 @@ def create_app(config_file: Optional[str] = None) -> FastAPI:
         session_id: str = "api",
         max_new_tokens: int = 120,
     ):
-        text = get_service().chat_once(
+        text = get_service_for_session(session_id).chat_once(
             user_text=user_text,
             session_id=session_id,
             max_new_tokens=max_new_tokens,
@@ -341,23 +371,18 @@ def create_app(config_file: Optional[str] = None) -> FastAPI:
     async def load_session(session_id: str):
         summary = _find_session(config_file, session_id)
         if summary is None:
-            from fastapi import HTTPException
             raise HTTPException(status_code=404, detail=f"Session not found: {session_id}")
-        restored_config = _write_config(
-            config_file,
-            _config_update_from_dict(summary.settings_snapshot),
-        )
-        get_service.cache_clear()
+        session_config_overrides[session_id] = dict(summary.settings_snapshot)
         session_path = Path(summary.session_path)
         return SessionDetail(
             **summary.dict(),
             messages=_load_transcript(session_path),
-            config=restored_config,
+            config=_config_response_from_snapshot(config_file, summary.settings_snapshot),
         )
 
     @app.post("/consolidate/{session_id}", response_model=ConsolidateResponse)
     async def consolidate(session_id: str):
-        result = get_service().consolidate_session_memory(session_id)
+        result = get_service_for_session(session_id).consolidate_session_memory(session_id)
         return ConsolidateResponse(result=result)
 
     return app
