@@ -67,7 +67,7 @@ The memory layer has four parts:
 - knowledge graph: stores structured triples such as user facts, role facts, and stable relationship information
 - profile view: builds a compact user profile from graph facts and injects it into future prompts
 
-At chat time, RoleWeaver builds a memory context packet from the current user message. It retrieves relevant episodic memories, profile facts, and character knowledge, then renders them into the prompt as sections like `【用户画像】`, `【情节记忆】`, and `【角色知识】`.
+At chat time, RoleWeaver builds a memory context packet from the current user message. It retrieves relevant episodic memories, profile facts, and character knowledge, then renders them into the prompt as sections.
 
 Memory writing is deliberately slower than normal reply generation. New turns first enter a pending buffer. When the session has been idle for a while, or when you manually call consolidation, RoleWeaver asks the memory rules and optional model judge which details are worth keeping. Useful facts are written into episodic memory or the knowledge graph; noisy chat is left out. This keeps the character from remembering every casual sentence as if it were permanent truth.
 
@@ -87,12 +87,12 @@ Useful local memory debug commands:
 
 ```text
 /mem list
-/mem search 关键词
+/mem search
 /profile show
 /pending show
 /writeplan show
 /kg show
-/ctx query 你想测试的输入
+/ctx query
 ```
 
 Retrieval uses dense embeddings when an embedding model is available, with lexical search as a fallback. If `sentence-transformers`, `faiss`, `numpy`, or the selected embedding model fails to load or encode text, RoleWeaver logs the problem and continues with lexical memory search instead of crashing the chat service.
