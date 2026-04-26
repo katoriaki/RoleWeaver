@@ -56,6 +56,17 @@ Endpoints:
 - `GET /chat?user_text=...`
 - `POST /consolidate/{session_id}`
 
+## Windows Launcher And Web UI
+
+On Windows, double-click `start_roleweaver.bat` from the project root. The launcher will:
+
+- create `roleweaver.config.csv` from the example if it does not exist
+- remind you to fill `base_model_path`, `lora_path`, and `skill_file`
+- start the FastAPI backend on `127.0.0.1:8000`
+- open the local ChatGPT-style frontend at `http://127.0.0.1:8000/`
+
+The web UI lives in `web/index.html`. It calls the same `/chat`, `/health`, and `/consolidate/{session_id}` endpoints as external clients, so it is only a thin local interface over the real RoleWeaver runtime.
+
 ## Memory System
 
 RoleWeaver uses a per-session hybrid memory runtime. Each `session_id` gets its own memory directory, so different users or roles do not share private conversation state unless you deliberately reuse the same session.

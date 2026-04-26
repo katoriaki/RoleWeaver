@@ -1,12 +1,18 @@
 import argparse
 from functools import lru_cache
+from pathlib import Path
 from typing import Optional
 
 from fastapi import FastAPI, Query
+from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel
 
 from role_chat_service import RoleChatService
 from role_config import RoleConfig
+
+
+PROJECT_ROOT = Path(__file__).resolve().parent
+WEB_ROOT = PROJECT_ROOT / "web"
 
 
 class ChatRequest(BaseModel):
@@ -31,6 +37,15 @@ def create_app(config_file: Optional[str] = None) -> FastAPI:
     def get_service() -> RoleChatService:
         config = RoleConfig.from_env(config_file=config_file)
         return RoleChatService(config=config)
+
+    @app.get("/", include_in_schema=False)
+    async def web_index():
+        index_file = WEB_ROOT / "index.html"
+        if index_file.exists():
+            return FileResponse(index_file)
+        return HTMLResponse(
+            "<h1>RoleWeaver API</h1><p>web/index.html was not found. The API is still running.</p>"
+        )
 
     @app.get("/health")
     async def health():
