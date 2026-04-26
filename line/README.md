@@ -160,7 +160,7 @@ English:
 - Model inference is synchronous, so slow generation also slows webhook handling
 - No async queue, typing/loading indicator, or media handling is implemented yet
 
-## 10. 下一步建议 / Suggested Next Steps
+## 10. Next Steps
 
 中文：
 
