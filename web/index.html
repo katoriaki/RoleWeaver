@@ -40,6 +40,7 @@
       display: grid;
       grid-template-columns: 304px minmax(0, 1fr);
       height: 100vh;
+      min-height: 0;
       overflow: hidden;
     }
 
@@ -47,11 +48,13 @@
       background: linear-gradient(180deg, #181d25 0%, #11151b 100%);
       color: #f9fafb;
       padding: 22px 18px;
-      display: flex;
-      flex-direction: column;
+      display: grid;
+      grid-template-rows: auto auto auto minmax(0, 1fr) auto;
       gap: 20px;
       border-right: 1px solid rgba(255, 255, 255, 0.06);
+      height: 100vh;
       min-height: 0;
+      overflow: hidden;
     }
 
     .brand h1 {
@@ -153,8 +156,7 @@
       display: grid;
       grid-template-rows: auto minmax(0, 1fr);
       gap: 8px;
-      flex: 1;
-      min-height: 120px;
+      min-height: 0;
       border-top: 1px solid var(--sidebar-line);
       padding-top: 14px;
       overflow: hidden;
@@ -171,27 +173,53 @@
       align-content: start;
       gap: 6px;
       overflow-y: auto;
-      padding-right: 2px;
+      padding-right: 4px;
       min-height: 0;
     }
 
-    .history-item {
+    .history-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 32px;
+      gap: 6px;
+      min-height: 40px;
+    }
+
+    .history-item,
+    .history-delete {
       width: 100%;
       background: rgba(255, 255, 255, 0.02);
       color: #e5e7eb;
       border: 1px solid transparent;
       padding: 10px 11px;
-      text-align: left;
+      min-height: 40px;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
       transition: background 140ms ease, border-color 140ms ease, transform 140ms ease;
     }
 
+    .history-item {
+      text-align: left;
+    }
+
+    .history-delete {
+      display: grid;
+      place-items: center;
+      padding: 0;
+      color: #aeb7c4;
+      font-size: 18px;
+      line-height: 1;
+    }
+
     .history-item:hover,
-    .history-item.active {
+    .history-item.active,
+    .history-delete:hover {
       background: #27303c;
       border-color: #3a4656;
+    }
+
+    .history-delete:hover {
+      color: #fecaca;
     }
 
     .history-item.active {
@@ -220,7 +248,6 @@
     }
 
     .status {
-      margin-top: auto;
       padding: 9px 10px;
       background: rgba(255, 255, 255, 0.04);
       border-radius: 8px;
@@ -838,6 +865,10 @@
         closeHint: "可以关闭这个页面了。",
         historyLoaded: "已加载历史会话。",
         historyEmpty: "暂无历史会话",
+        deleteHistory: "删除历史",
+        deleteHistoryConfirm: "确定删除这个历史会话吗？这会删除本机 memory 里的对应会话文件夹。",
+        deleteHistoryDone: "历史会话已删除。",
+        deleteHistoryFailed: "删除历史失败",
         invalidSettings: "旧会话设置不可用",
         saveFailed: "保存设置失败",
         noSkill: "未配置 skill",
@@ -907,6 +938,10 @@
         closeHint: "このページを閉じても大丈夫です。",
         historyLoaded: "履歴を読み込みました。",
         historyEmpty: "履歴はまだありません",
+        deleteHistory: "履歴を削除",
+        deleteHistoryConfirm: "この履歴チャットを削除しますか？ローカル memory 内の対応するセッションフォルダが削除されます。",
+        deleteHistoryDone: "履歴を削除しました。",
+        deleteHistoryFailed: "履歴削除に失敗",
         invalidSettings: "旧セッションの設定を利用できません",
         saveFailed: "設定保存に失敗",
         noSkill: "skill 未設定",
@@ -976,6 +1011,10 @@
         closeHint: "You can close this page now.",
         historyLoaded: "Previous chat loaded.",
         historyEmpty: "No previous chats",
+        deleteHistory: "Delete history",
+        deleteHistoryConfirm: "Delete this chat history? This removes the matching local session folder under memory.",
+        deleteHistoryDone: "Chat history deleted.",
+        deleteHistoryFailed: "Failed to delete history",
         invalidSettings: "Previous chat settings are unavailable",
         saveFailed: "Failed to save settings",
         noSkill: "No skill configured",
@@ -1143,13 +1182,30 @@
       }
       const active = sessionInput.value.trim();
       for (const session of state.sessions) {
+        const row = document.createElement("div");
+        row.className = "history-row";
+
         const button = document.createElement("button");
         button.type = "button";
         button.className = "history-item" + (session.session_id === active ? " active" : "");
         button.title = session.display_name || session.session_id;
         button.textContent = session.display_name || session.session_id;
         button.addEventListener("click", () => loadSession(session.session_id));
-        historyList.appendChild(button);
+
+        const deleteButton = document.createElement("button");
+        deleteButton.type = "button";
+        deleteButton.className = "history-delete";
+        deleteButton.title = t("deleteHistory");
+        deleteButton.setAttribute("aria-label", `${t("deleteHistory")}: ${session.display_name || session.session_id}`);
+        deleteButton.textContent = "×";
+        deleteButton.addEventListener("click", (event) => {
+          event.stopPropagation();
+          deleteSession(session.session_id);
+        });
+
+        row.appendChild(button);
+        row.appendChild(deleteButton);
+        historyList.appendChild(row);
       }
     }
 
@@ -1275,6 +1331,34 @@
         showToast(t("historyLoaded"));
       } catch (err) {
         showToast(`${t("requestFailed")}：${err.message}`);
+      }
+    }
+
+    async function deleteSession(sessionId) {
+      if (!window.confirm(t("deleteHistoryConfirm"))) return;
+      try {
+        const res = await fetch(`/sessions/${encodeURIComponent(sessionId)}`, { method: "DELETE" });
+        if (!res.ok) {
+          const detail = await res.text();
+          throw new Error(parseErrorText(detail) || `HTTP ${res.status}`);
+        }
+        const deletedActiveSession = (sessionInput.value.trim() || "web") === sessionId;
+        if (deletedActiveSession) {
+          state.messages = [];
+          saveMessages();
+          renderMessages();
+          sessionInput.value = "web";
+          saveSessionId();
+          showWarning([]);
+        }
+        if (deletedActiveSession) {
+          await createServerSession();
+        } else {
+          await listSessions();
+        }
+        showToast(t("deleteHistoryDone"));
+      } catch (err) {
+        showToast(`${t("deleteHistoryFailed")}：${err.message}`);
       }
     }
 

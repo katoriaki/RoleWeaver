@@ -2,6 +2,7 @@ import argparse
 import csv
 import json
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -348,6 +349,21 @@ def _find_session(config_file: Optional[str], session_id: str) -> Optional[Sessi
     return None
 
 
+def _delete_session_dir(config_file: Optional[str], summary: SessionSummary):
+    memory_root = _session_root_for_config(config_file).resolve()
+    session_path = Path(summary.session_path).resolve()
+    try:
+        session_path.relative_to(memory_root)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"Session path is outside memory root: {session_path}") from exc
+    if not session_path.exists() or not session_path.is_dir():
+        raise HTTPException(status_code=404, detail=f"Session directory not found: {summary.session_id}")
+    try:
+        shutil.rmtree(session_path)
+    except PermissionError as exc:
+        raise HTTPException(status_code=409, detail=f"Session directory is locked or not writable: {session_path}") from exc
+
+
 def create_app(config_file: Optional[str] = None) -> FastAPI:
     app = FastAPI(title="RoleWeaver API")
     session_config_overrides: Dict[str, Dict] = {}
@@ -604,6 +620,15 @@ def create_app(config_file: Optional[str] = None) -> FastAPI:
             messages=_load_transcript(session_path),
             config=_config_response_from_snapshot(config_file, summary.settings_snapshot),
         )
+
+    @app.delete("/sessions/{session_id}")
+    async def delete_session(session_id: str):
+        summary = _find_session(config_file, session_id)
+        if summary is None:
+            raise HTTPException(status_code=404, detail=f"Session not found: {session_id}")
+        _delete_session_dir(config_file, summary)
+        session_config_overrides.pop(session_id, None)
+        return {"deleted": True, "session_id": session_id}
 
     @app.post("/consolidate/{session_id}", response_model=ConsolidateResponse)
     async def consolidate(session_id: str):
