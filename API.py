@@ -91,6 +91,10 @@ class SessionDetail(SessionSummary):
     config: ConfigResponse
 
 
+class SessionUpdate(BaseModel):
+    display_name: Optional[str] = None
+
+
 class ConfigUpdate(BaseModel):
     base_model_path: Optional[str] = None
     lora_path: Optional[str] = None
@@ -219,6 +223,12 @@ def _read_json(path: Path, default):
     return default
 
 
+def _write_json(path: Path, data):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+
 def _resolve_user_path(value: Optional[str]) -> Optional[Path]:
     value = (value or "").strip()
     if not value:
@@ -328,9 +338,12 @@ def _scan_sessions(config_file: Optional[str]) -> List[SessionSummary]:
         if not isinstance(snapshot, dict):
             snapshot = {}
         session_id = meta.get("session_id") or session_path.name
+        display_name = str(meta.get("display_name") or snapshot.get("display_name") or "Untitled chat").strip()
+        if not display_name or display_name == session_id:
+            display_name = "Untitled chat"
         summaries.append(SessionSummary(
             session_id=session_id,
-            display_name=meta.get("display_name") or session_id,
+            display_name=display_name,
             created_ts=int(meta.get("created_ts") or 0),
             updated_ts=int(meta.get("updated_ts") or meta.get("last_activity_ts") or 0),
             session_path=str(session_path),
@@ -362,6 +375,35 @@ def _delete_session_dir(config_file: Optional[str], summary: SessionSummary):
         shutil.rmtree(session_path)
     except PermissionError as exc:
         raise HTTPException(status_code=409, detail=f"Session directory is locked or not writable: {session_path}") from exc
+
+
+def _update_session_display_name(summary: SessionSummary, display_name: str) -> SessionSummary:
+    display_name = display_name.strip()[:80]
+    if not display_name:
+        raise HTTPException(status_code=400, detail="display_name must not be empty.")
+
+    session_path = Path(summary.session_path)
+    short_term_path = session_path / "short_term"
+    meta_path = short_term_path / "session_meta.json"
+    snapshot_path = short_term_path / "settings_snapshot.json"
+    meta = _read_json(meta_path, {})
+    if not isinstance(meta, dict):
+        meta = {}
+    snapshot = meta.get("settings_snapshot") or _read_json(snapshot_path, {})
+    if not isinstance(snapshot, dict):
+        snapshot = {}
+
+    meta["session_id"] = summary.session_id
+    meta["display_name"] = display_name
+    snapshot["display_name"] = display_name
+    meta["settings_snapshot"] = snapshot
+    _write_json(meta_path, meta)
+    _write_json(snapshot_path, snapshot)
+
+    refreshed = summary.dict()
+    refreshed["display_name"] = display_name
+    refreshed["settings_snapshot"] = snapshot
+    return SessionSummary(**refreshed)
 
 
 def create_app(config_file: Optional[str] = None) -> FastAPI:
@@ -620,6 +662,18 @@ def create_app(config_file: Optional[str] = None) -> FastAPI:
             messages=_load_transcript(session_path),
             config=_config_response_from_snapshot(config_file, summary.settings_snapshot),
         )
+
+    @app.patch("/sessions/{session_id}", response_model=SessionSummary)
+    async def update_session(session_id: str, payload: SessionUpdate):
+        summary = _find_session(config_file, session_id)
+        if summary is None:
+            raise HTTPException(status_code=404, detail=f"Session not found: {session_id}")
+        if payload.display_name is None:
+            raise HTTPException(status_code=400, detail="display_name is required.")
+        updated = _update_session_display_name(summary, payload.display_name)
+        if session_id in session_config_overrides:
+            session_config_overrides[session_id]["display_name"] = updated.display_name
+        return updated
 
     @app.delete("/sessions/{session_id}")
     async def delete_session(session_id: str):

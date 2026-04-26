@@ -63,6 +63,7 @@ Endpoints:
 - `GET /sessions`
 - `POST /sessions`
 - `GET /sessions/{session_id}`
+- `PATCH /sessions/{session_id}`
 - `DELETE /sessions/{session_id}`
 - `POST /training/start`
 - `GET /training/status`
@@ -90,7 +91,7 @@ The web UI includes a Settings panel with Chinese, Japanese, and English interfa
 
 Settings are saved back to `roleweaver.config.csv` through `POST /config`. After saving, the in-process RoleWeaver service cache is reset, so the next chat request loads the model with the new settings.
 
-The web UI also has history controls in the sidebar. `New chat` creates a timestamped session folder and records the current Settings snapshot. Clicking an older chat restores that session, reloads its saved Settings, and shows a red warning box if the saved model, LoRA, or skill paths no longer exist. Session settings are restored from the on-disk snapshot after a server restart; restoring a session does not need to rewrite `roleweaver.config.csv`. Each history item can also be deleted from the sidebar after a confirmation prompt; deletion removes the matching local session folder under `memory/`.
+The web UI also has history controls in the sidebar. `New chat` creates a timestamped session folder and records the current Settings snapshot. The internal session id stays hidden in the UI; users edit a separate display name that is stored in that session's metadata and settings snapshot without renaming the memory folder. Clicking an older chat restores that session, reloads its saved Settings, and shows a red warning box if the saved model, LoRA, or skill paths no longer exist. Session settings are restored from the on-disk snapshot after a server restart; restoring a session does not need to rewrite `roleweaver.config.csv`. Each history item can also be deleted from the sidebar after a confirmation prompt; deletion removes the matching local session folder under `memory/`.
 
 There is also an explicit Exit button. Exit and browser page close both trigger memory consolidation for the current session.
 

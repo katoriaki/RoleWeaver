@@ -630,8 +630,9 @@
       </div>
 
       <div class="field">
-        <label for="sessionId" data-i18n="sessionId">Session ID</label>
-        <input id="sessionId" value="web" autocomplete="off">
+        <label for="chatName" data-i18n="chatName">Chat name</label>
+        <input id="chatName" value="" autocomplete="off">
+        <input id="sessionId" type="hidden" value="web">
       </div>
 
       <div class="field">
@@ -822,7 +823,7 @@
     const i18n = {
       zh: {
         tagline: "本地角色聊天运行时",
-        sessionId: "会话 ID",
+        chatName: "会话名称",
         maxTokens: "最大生成 token",
         newChat: "新会话",
         more: "更多",
@@ -865,6 +866,9 @@
         closeHint: "可以关闭这个页面了。",
         historyLoaded: "已加载历史会话。",
         historyEmpty: "暂无历史会话",
+        untitledChat: "未命名会话",
+        renameSaved: "会话名称已保存。",
+        renameFailed: "保存会话名称失败",
         deleteHistory: "删除历史",
         deleteHistoryConfirm: "确定删除这个历史会话吗？这会删除本机 memory 里的对应会话文件夹。",
         deleteHistoryDone: "历史会话已删除。",
@@ -895,7 +899,7 @@
       },
       ja: {
         tagline: "ローカル・ロールチャット実行環境",
-        sessionId: "セッション ID",
+        chatName: "チャット名",
         maxTokens: "最大生成トークン",
         newChat: "新規チャット",
         more: "その他",
@@ -938,6 +942,9 @@
         closeHint: "このページを閉じても大丈夫です。",
         historyLoaded: "履歴を読み込みました。",
         historyEmpty: "履歴はまだありません",
+        untitledChat: "無題のチャット",
+        renameSaved: "チャット名を保存しました。",
+        renameFailed: "チャット名の保存に失敗",
         deleteHistory: "履歴を削除",
         deleteHistoryConfirm: "この履歴チャットを削除しますか？ローカル memory 内の対応するセッションフォルダが削除されます。",
         deleteHistoryDone: "履歴を削除しました。",
@@ -968,7 +975,7 @@
       },
       en: {
         tagline: "Local role chat runtime",
-        sessionId: "Session ID",
+        chatName: "Chat name",
         maxTokens: "Max new tokens",
         newChat: "New chat",
         more: "More",
@@ -1011,6 +1018,9 @@
         closeHint: "You can close this page now.",
         historyLoaded: "Previous chat loaded.",
         historyEmpty: "No previous chats",
+        untitledChat: "Untitled chat",
+        renameSaved: "Chat name saved.",
+        renameFailed: "Failed to save chat name",
         deleteHistory: "Delete history",
         deleteHistoryConfirm: "Delete this chat history? This removes the matching local session folder under memory.",
         deleteHistoryDone: "Chat history deleted.",
@@ -1056,6 +1066,7 @@
     const promptInput = document.getElementById("promptInput");
     const sendButton = document.getElementById("sendButton");
     const sessionInput = document.getElementById("sessionId");
+    const chatNameInput = document.getElementById("chatName");
     const maxTokensInput = document.getElementById("maxTokens");
     const statusBox = document.getElementById("statusBox");
     const historyList = document.getElementById("historyList");
@@ -1137,6 +1148,32 @@
       showToast.timer = window.setTimeout(() => toast.classList.remove("show"), 3400);
     }
 
+    function formatSessionTime(session) {
+      const timestamp = Number(session.updated_ts || session.created_ts || 0);
+      if (!timestamp) return "";
+      try {
+        return new Date(timestamp * 1000).toLocaleString(
+          state.language === "en" ? "en-US" : state.language === "ja" ? "ja-JP" : "zh-CN",
+          { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" },
+        );
+      } catch (err) {
+        return "";
+      }
+    }
+
+    function sessionLabel(session) {
+      const name = (session.display_name || "").trim();
+      if (name && name !== session.session_id && name !== "Untitled chat") return name;
+      const timeText = formatSessionTime(session);
+      return timeText ? `${t("untitledChat")} ${timeText}` : t("untitledChat");
+    }
+
+    function setCurrentSessionName(session) {
+      const label = sessionLabel(session || {});
+      chatNameInput.value = label;
+      chatNameInput.dataset.savedName = label;
+    }
+
     function closeMoreMenu() {
       moreMenu.classList.remove("open");
     }
@@ -1188,15 +1225,16 @@
         const button = document.createElement("button");
         button.type = "button";
         button.className = "history-item" + (session.session_id === active ? " active" : "");
-        button.title = session.display_name || session.session_id;
-        button.textContent = session.display_name || session.session_id;
+        const label = sessionLabel(session);
+        button.title = label;
+        button.textContent = label;
         button.addEventListener("click", () => loadSession(session.session_id));
 
         const deleteButton = document.createElement("button");
         deleteButton.type = "button";
         deleteButton.className = "history-delete";
         deleteButton.title = t("deleteHistory");
-        deleteButton.setAttribute("aria-label", `${t("deleteHistory")}: ${session.display_name || session.session_id}`);
+        deleteButton.setAttribute("aria-label", `${t("deleteHistory")}: ${label}`);
         deleteButton.textContent = "×";
         deleteButton.addEventListener("click", (event) => {
           event.stopPropagation();
@@ -1225,6 +1263,41 @@
       skillText.value = config.skill_text || "";
       quantizationMode.value = config.quantization_mode || "4bit";
       applyLanguage(languageSelect.value);
+    }
+
+    async function renameCurrentSession() {
+      const sessionId = sessionInput.value.trim();
+      const displayName = chatNameInput.value.trim();
+      const previousName = chatNameInput.dataset.savedName || "";
+      if (!sessionId) return;
+      if (!displayName) {
+        chatNameInput.value = previousName || t("untitledChat");
+        return;
+      }
+      if (displayName === previousName) return;
+      try {
+        const res = await fetch(`/sessions/${encodeURIComponent(sessionId)}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ display_name: displayName }),
+        });
+        if (!res.ok) {
+          const detail = await res.text();
+          throw new Error(parseErrorText(detail) || `HTTP ${res.status}`);
+        }
+        const updated = await res.json();
+        chatNameInput.dataset.savedName = updated.display_name || displayName;
+        chatNameInput.value = updated.display_name || displayName;
+        const index = state.sessions.findIndex((item) => item.session_id === sessionId);
+        if (index >= 0) {
+          state.sessions[index] = { ...state.sessions[index], ...updated };
+        }
+        renderSessionList();
+        showToast(t("renameSaved"));
+      } catch (err) {
+        chatNameInput.value = previousName || chatNameInput.value;
+        showToast(`${t("renameFailed")}：${err.message}`);
+      }
     }
 
     function parseErrorText(text) {
@@ -1294,6 +1367,7 @@
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       sessionInput.value = data.session_id || "web";
+      setCurrentSessionName(data);
       saveSessionId();
       await listSessions();
       return data;
@@ -1304,9 +1378,19 @@
         const res = await fetch("/sessions");
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         state.sessions = await res.json();
+        const active = sessionInput.value.trim();
+        const activeSession = state.sessions.find((item) => item.session_id === active);
+        if (activeSession) {
+          setCurrentSessionName(activeSession);
+        } else if (!chatNameInput.value.trim()) {
+          setCurrentSessionName({});
+        }
         renderSessionList();
       } catch (err) {
         state.sessions = [];
+        if (!chatNameInput.value.trim()) {
+          setCurrentSessionName({});
+        }
         renderSessionList();
       }
     }
@@ -1320,6 +1404,7 @@
         }
         const data = await res.json();
         sessionInput.value = data.session_id;
+        setCurrentSessionName(data);
         saveSessionId();
         state.messages = data.messages || [];
         saveMessages();
@@ -1645,6 +1730,14 @@
       renderSessionList();
     });
     applyLanguage(state.language);
+    setCurrentSessionName({});
+    chatNameInput.addEventListener("blur", renameCurrentSession);
+    chatNameInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        chatNameInput.blur();
+      }
+    });
     renderMessages();
     checkHealth({ refreshConfig: true }).then(() => {
       listSessions();

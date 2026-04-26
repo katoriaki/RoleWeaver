@@ -133,12 +133,14 @@ class RoleChatService:
             counter += 1
         path = self._session_dir(session_id)
         created_ts = now_ts()
+        display_name = str((extra_settings or {}).get("display_name") or "Untitled chat").strip()[:80] or "Untitled chat"
         snapshot = self._settings_snapshot(extra_settings=extra_settings)
+        snapshot["display_name"] = display_name
         self._save_session_meta(
             session_id,
             {
                 "session_id": session_id,
-                "display_name": session_id,
+                "display_name": display_name,
                 "created_ts": created_ts,
                 "updated_ts": created_ts,
                 "role_mode": self.config.role_mode_default,
@@ -150,7 +152,7 @@ class RoleChatService:
         _write_json_file(path / "short_term" / "settings_snapshot.json", snapshot)
         return {
             "session_id": session_id,
-            "display_name": session_id,
+            "display_name": display_name,
             "created_ts": created_ts,
             "updated_ts": created_ts,
             "session_path": str(path),
