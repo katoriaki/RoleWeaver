@@ -56,6 +56,47 @@ Endpoints:
 - `GET /chat?user_text=...`
 - `POST /consolidate/{session_id}`
 
+## Memory System
+
+RoleWeaver uses a per-session hybrid memory runtime. Each `session_id` gets its own memory directory, so different users or roles do not share private conversation state unless you deliberately reuse the same session.
+
+The memory layer has four parts:
+
+- recent dialogue window: keeps the latest turns available for immediate continuity
+- episodic memory: stores selected long-term events, preferences, and relationship facts
+- knowledge graph: stores structured triples such as user facts, role facts, and stable relationship information
+- profile view: builds a compact user profile from graph facts and injects it into future prompts
+
+At chat time, RoleWeaver builds a memory context packet from the current user message. It retrieves relevant episodic memories, profile facts, and character knowledge, then renders them into the prompt as sections like `【用户画像】`, `【情节记忆】`, and `【角色知识】`.
+
+Memory writing is deliberately slower than normal reply generation. New turns first enter a pending buffer. When the session has been idle for a while, or when you manually call consolidation, RoleWeaver asks the memory rules and optional model judge which details are worth keeping. Useful facts are written into episodic memory or the knowledge graph; noisy chat is left out. This keeps the character from remembering every casual sentence as if it were permanent truth.
+
+Manual consolidation is available through the local chat command:
+
+```text
+/consolidate now
+```
+
+The HTTP API exposes the same operation:
+
+```powershell
+Invoke-RestMethod -Method Post http://127.0.0.1:8000/consolidate/default
+```
+
+Useful local memory debug commands:
+
+```text
+/mem list
+/mem search 关键词
+/profile show
+/pending show
+/writeplan show
+/kg show
+/ctx query 你想测试的输入
+```
+
+Retrieval uses dense embeddings when an embedding model is available, with lexical search as a fallback. If `sentence-transformers`, `faiss`, `numpy`, or the selected embedding model fails to load or encode text, RoleWeaver logs the problem and continues with lexical memory search instead of crashing the chat service.
+
 ## LINE Bot（Construction）
 
 The LINE app reads the same `ROLEWEAVER_*` variables plus:
