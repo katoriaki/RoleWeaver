@@ -214,6 +214,8 @@ python resources\qwen35_lora_training\train_qwen35_lora_offline.py `
 
 The adapter is saved in the output directory you provide. The script defaults to offline Hugging Face loading; pass `--online` if the model or tokenizer should be resolved through the network.
 
+For Qwen-style thinking models, the bundled trainer disables thinking tags when it builds supervised fine-tuning text, so the adapter learns the assistant answer rather than empty `<think>` blocks.
+
 ## Utility Probes
 
 Probe a base model:

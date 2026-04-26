@@ -38,6 +38,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
 def main():
     args = build_arg_parser().parse_args()
     local_files_only = not args.online
+    os.environ.setdefault("PYTHONIOENCODING", "utf-8")
+    os.environ.setdefault("PYTHONUTF8", "1")
 
     if local_files_only:
         os.environ["HF_HUB_OFFLINE"] = "1"
@@ -57,7 +59,7 @@ def main():
     model = AutoModelForCausalLM.from_pretrained(
         args.model_path,
         device_map="auto",
-        torch_dtype=torch.bfloat16,
+        dtype=torch.bfloat16,
         trust_remote_code=True,
         local_files_only=local_files_only,
     )
@@ -83,11 +85,16 @@ def main():
     print("sample[0]:", dataset[0])
 
     def build_chat_text(example):
-        text = tokenizer.apply_chat_template(
-            example["messages"],
-            tokenize=False,
-            add_generation_prompt=False,
-        )
+        template_kwargs = {
+            "tokenize": False,
+            "add_generation_prompt": False,
+            "enable_thinking": False,
+        }
+        try:
+            text = tokenizer.apply_chat_template(example["messages"], **template_kwargs)
+        except TypeError:
+            template_kwargs.pop("enable_thinking")
+            text = tokenizer.apply_chat_template(example["messages"], **template_kwargs)
         return {"text": text}
 
     print("5) building text field...")
