@@ -189,7 +189,7 @@ uvicorn line.app:app --host 0.0.0.0 --port 8000
 
 ## QQ Voice Bot（Construction）
 
-QQ voice reply integration lives in `QQbot/`. It uses QQ official bot events, an SSH tunnel to the remote RoleWeaver text API, and local GPT-SoVITS for voice synthesis.
+QQ voice reply integration lives in `QQbot/`. It uses QQ official bot events, an SSH tunnel to the remote RoleWeaver text API, and local API for voice synthesis.
 
 ```powershell
 python -m QQbot.main --config QQbot\qq_voice_bot.config.csv
