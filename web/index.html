@@ -447,6 +447,7 @@
         <button class="side-button" id="settingsButton" type="button" data-i18n="settings">Settings</button>
         <button class="side-button" id="consolidateButton" type="button" data-i18n="consolidate">Consolidate memory</button>
         <button class="side-button" id="healthButton" type="button" data-i18n="checkRuntime">Check runtime</button>
+        <button class="side-button" id="exitButton" type="button" data-i18n="exit">Exit</button>
       </div>
 
       <div class="status" id="statusBox">Connecting to RoleWeaver...</div>
@@ -552,6 +553,7 @@
         settings: "设置",
         consolidate: "整理记忆",
         checkRuntime: "检查运行状态",
+        exit: "退出",
         subtitle: "类 ChatGPT 本地前端",
         offline: "离线",
         online: "在线",
@@ -579,6 +581,8 @@
         memoryDone: "记忆整理完成。",
         memoryFailed: "记忆整理失败",
         saved: "设置已保存。下一次聊天会按新配置加载模型。",
+        exitDone: "退出前已开始整理记忆。",
+        closeHint: "可以关闭这个页面了。",
         saveFailed: "保存设置失败",
         noSkill: "未配置 skill",
         inlineSkillPresent: "已填写内联 skill",
@@ -592,6 +596,7 @@
         settings: "設定",
         consolidate: "記憶を整理",
         checkRuntime: "状態を確認",
+        exit: "終了",
         subtitle: "ChatGPT風ローカルフロントエンド",
         offline: "オフライン",
         online: "オンライン",
@@ -619,6 +624,8 @@
         memoryDone: "記憶の整理が完了しました。",
         memoryFailed: "記憶整理に失敗",
         saved: "設定を保存しました。次のチャットから新しい設定で読み込みます。",
+        exitDone: "終了前の記憶整理を開始しました。",
+        closeHint: "このページを閉じても大丈夫です。",
         saveFailed: "設定保存に失敗",
         noSkill: "skill 未設定",
         inlineSkillPresent: "インライン skill あり",
@@ -632,6 +639,7 @@
         settings: "Settings",
         consolidate: "Consolidate memory",
         checkRuntime: "Check runtime",
+        exit: "Exit",
         subtitle: "ChatGPT-style local frontend",
         offline: "offline",
         online: "online",
@@ -659,6 +667,8 @@
         memoryDone: "Memory consolidation complete.",
         memoryFailed: "Memory consolidation failed",
         saved: "Settings saved. The next chat will load with the new configuration.",
+        exitDone: "Memory consolidation has started before exit.",
+        closeHint: "You can close this page now.",
         saveFailed: "Failed to save settings",
         noSkill: "No skill configured",
         inlineSkillPresent: "Inline skill present",
@@ -671,6 +681,7 @@
       language: localStorage.getItem("roleweaver.language") || "zh",
       busy: false,
       config: null,
+      closingConsolidated: false,
     };
 
     const messagesEl = document.getElementById("messages");
@@ -719,6 +730,10 @@
 
     function saveMessages() {
       localStorage.setItem("roleweaver.messages", JSON.stringify(state.messages.slice(-80)));
+    }
+
+    function saveSessionId() {
+      localStorage.setItem("roleweaver.sessionId", sessionInput.value.trim() || "web");
     }
 
     function showToast(text) {
@@ -784,6 +799,27 @@
       return config;
     }
 
+    async function createServerSession() {
+      const res = await fetch("/sessions", { method: "POST" });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      sessionInput.value = data.session_id || "web";
+      saveSessionId();
+      return data;
+    }
+
+    function consolidateWithBeacon() {
+      if (state.closingConsolidated) return;
+      state.closingConsolidated = true;
+      const sessionId = encodeURIComponent(sessionInput.value.trim() || "web");
+      const url = `/consolidate/${sessionId}`;
+      if (navigator.sendBeacon) {
+        navigator.sendBeacon(url, new Blob([], { type: "text/plain" }));
+      } else {
+        fetch(url, { method: "POST", keepalive: true }).catch(() => {});
+      }
+    }
+
     async function checkHealth() {
       try {
         const config = await loadConfig();
@@ -809,6 +845,7 @@
 
     async function sendMessage(text) {
       const sessionId = sessionInput.value.trim() || "web";
+      saveSessionId();
       const maxNewTokens = Number(maxTokensInput.value || 160);
 
       state.messages.push({ role: "user", content: text });
@@ -869,7 +906,12 @@
       state.messages = [];
       saveMessages();
       renderMessages();
-      promptInput.focus();
+      createServerSession()
+        .then(() => {
+          promptInput.focus();
+          showToast(t("newChat"));
+        })
+        .catch((err) => showToast(`${t("requestFailed")}：${err.message}`));
     });
 
     document.getElementById("settingsButton").addEventListener("click", async () => {
@@ -943,11 +985,33 @@
       }
     });
 
+    document.getElementById("exitButton").addEventListener("click", async () => {
+      const sessionId = encodeURIComponent(sessionInput.value.trim() || "web");
+      try {
+        const res = await fetch(`/consolidate/${sessionId}`, { method: "POST" });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        state.closingConsolidated = true;
+        showToast(`${t("exitDone")} ${t("closeHint")}`);
+        window.setTimeout(() => window.close(), 700);
+      } catch (err) {
+        showToast(`${t("memoryFailed")}：${err.message}`);
+      }
+    });
+
     document.getElementById("healthButton").addEventListener("click", checkHealth);
 
+    window.addEventListener("pagehide", consolidateWithBeacon);
+    window.addEventListener("beforeunload", consolidateWithBeacon);
+
+    sessionInput.value = localStorage.getItem("roleweaver.sessionId") || sessionInput.value || "web";
+    sessionInput.addEventListener("change", saveSessionId);
     applyLanguage(state.language);
     renderMessages();
-    checkHealth();
+    checkHealth().then(() => {
+      if (!localStorage.getItem("roleweaver.sessionId")) {
+        createServerSession().catch(() => {});
+      }
+    });
   </script>
 </body>
 </html>

@@ -70,7 +70,7 @@ PROFILE_SLOT_PRIORITIES = {
 
 RELATION_TO_PROFILE_SLOT = {label: slot for slot, label in PROFILE_SLOT_LABELS.items()}
 SINGLE_VALUE_RELATIONS = {"名字", "称呼偏好", "身份", "当前状态"}
-CHARACTER_QUERY_KEYWORDS = ("美铃", "秦谷", "秦谷美铃", "角色", "偶像", "学园")
+CHARACTER_QUERY_KEYWORDS = ("角色",)
 STATE_KEYWORDS = (
     "累",
     "困",
@@ -91,80 +91,7 @@ MEMORY_WRITE_THRESHOLDS = {
 }
 
 
-MISUZU_KNOWLEDGE_SEED = [
-    {
-        "subject": "秦谷美铃",
-        "relation": "年龄",
-        "object": "15岁",
-        "tags": ["基础档案", "core"],
-        "source": "official_profile",
-        "confidence": 0.98,
-    },
-    {
-        "subject": "秦谷美铃",
-        "relation": "生日",
-        "object": "2月6日",
-        "tags": ["基础档案", "core"],
-        "source": "official_profile",
-        "confidence": 0.98,
-    },
-    {
-        "subject": "秦谷美铃",
-        "relation": "出身地",
-        "object": "京都府",
-        "tags": ["基础档案"],
-        "source": "official_profile",
-        "confidence": 0.98,
-    },
-    {
-        "subject": "秦谷美铃",
-        "relation": "兴趣",
-        "object": "午睡、散步",
-        "tags": ["基础档案", "core"],
-        "source": "official_profile",
-        "confidence": 0.98,
-    },
-    {
-        "subject": "秦谷美铃",
-        "relation": "特技",
-        "object": "料理、花道、生物钟准确",
-        "tags": ["基础档案"],
-        "source": "official_profile",
-        "confidence": 0.98,
-    },
-    {
-        "subject": "秦谷美铃",
-        "relation": "性格核心",
-        "object": "不是单纯懒散，而是明确选择按自己的步调前进",
-        "tags": ["人物理解", "core"],
-        "source": "local_primary_corpus",
-        "confidence": 0.93,
-    },
-    {
-        "subject": "秦谷美铃",
-        "relation": "关系动机",
-        "object": "对重要的人有很强的守护欲，会主动进入照顾位",
-        "tags": ["人物理解", "core"],
-        "source": "local_primary_corpus",
-        "confidence": 0.93,
-    },
-    {
-        "subject": "秦谷美铃",
-        "relation": "表达风格",
-        "object": "会用轻柔带笑意的方式说出很重的话",
-        "tags": ["人物理解", "core"],
-        "source": "local_primary_corpus",
-        "confidence": 0.93,
-    },
-    {
-        "subject": "秦谷美铃",
-        "relation": "公开时间线",
-        "object": "2025年5月16日正式开放制作",
-        "tags": ["时间线"],
-        "source": "official_timeline",
-        "confidence": 0.97,
-    },
-]
+MISUZU_KNOWLEDGE_SEED = []
 
 
 def now_ts() -> int:
@@ -528,7 +455,7 @@ def apply_memory_write_thresholds(
 def build_rule_memory_write_plan_from_turns(
     turns: List[Dict[str, Any]],
     user_subject: str = "制作人",
-    assistant_label: str = "美铃",
+    assistant_label: str = "RoleWeaver",
 ) -> Dict[str, List[Dict]]:
     profile_candidates: List[Dict] = []
     graph_facts: List[Dict] = []
@@ -576,7 +503,7 @@ def build_memory_write_plan(
     judge: Optional[Callable[[Dict[str, Any]], Optional[Dict[str, Any]]]] = None,
     active_facts: Optional[List[Dict]] = None,
     user_subject: str = "制作人",
-    assistant_label: str = "美铃",
+    assistant_label: str = "RoleWeaver",
 ) -> Dict[str, Any]:
     sanitized_base = build_rule_memory_write_plan_from_turns(
         pending_turns,
@@ -996,7 +923,7 @@ class ConversationState:
         archive_chunk: int = 4,
         max_summaries: int = 32,
         user_label: str = "制作人",
-        assistant_label: str = "美铃",
+        assistant_label: str = "RoleWeaver",
     ):
         self.state_file = state_file
         self.recent_limit = recent_limit
@@ -1105,7 +1032,7 @@ class KnowledgeGraphStore:
         seed_facts: Optional[List[Dict[str, Any]]] = None,
     ):
         self.graph_file = graph_file
-        self.seed_facts = seed_facts if seed_facts is not None else MISUZU_KNOWLEDGE_SEED
+        self.seed_facts = seed_facts if seed_facts is not None else []
         self.graph = self._load_graph()
         if not self.graph.get("triples"):
             self.seed_defaults()
@@ -1280,7 +1207,7 @@ class MemoryRuntime:
         knowledge_file: str = "knowledge_graph_v1.json",
         memory_write_judge: Optional[Callable[[Dict[str, Any]], Optional[Dict[str, Any]]]] = None,
         user_subject: str = "制作人",
-        assistant_label: str = "美铃",
+        assistant_label: str = "RoleWeaver",
         character_query_keywords: Optional[List[str]] = None,
         character_knowledge_seed: Optional[List[Dict[str, Any]]] = None,
     ):

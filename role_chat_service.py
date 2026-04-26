@@ -1,9 +1,11 @@
 import argparse
+import hashlib
 import json
 import os
 import re
 import threading
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, Optional
 
@@ -21,6 +23,18 @@ from role_config import (
 def sanitize_session_id(session_id: str) -> str:
     cleaned = re.sub(r"[^a-zA-Z0-9_.-]+", "_", (session_id or "default").strip())
     return cleaned[:100] or "default"
+
+
+def _identity_component(value: Optional[str], fallback: str) -> str:
+    if not value:
+        return fallback
+    name = Path(str(value)).name or Path(str(value)).stem or fallback
+    cleaned = re.sub(r"[^a-zA-Z0-9_.\-\u4e00-\u9fffぁ-んァ-ン一-龯]+", "_", name)
+    return cleaned[:48].strip("._-") or fallback
+
+
+def _short_hash(value: str) -> str:
+    return hashlib.sha1(value.encode("utf-8", errors="ignore")).hexdigest()[:10]
 
 
 class RoleChatService:
@@ -48,7 +62,8 @@ class RoleChatService:
         )
         self.base_model_path = self.config.base_model_path
         self.lora_path = self.config.lora_path
-        self.session_root = Path(self.config.session_root)
+        self.memory_root = Path(self.config.session_root)
+        self.session_root = self._config_memory_dir()
         self.session_root.mkdir(parents=True, exist_ok=True)
 
         self._tokenizer = None
@@ -61,6 +76,42 @@ class RoleChatService:
         self.idle_consolidation_seconds = normalize_idle_consolidation_seconds(
             self.config.idle_consolidation_seconds
         )
+
+    def _config_memory_dir(self) -> Path:
+        identity = {
+            "base_model_path": self.config.base_model_path or "",
+            "lora_path": self.config.lora_path or "",
+            "skill_file": self.config.skill_file or "",
+            "skill_text": self.config.skill_text or "",
+        }
+        identity_text = json.dumps(identity, ensure_ascii=False, sort_keys=True)
+        base_name = _identity_component(self.config.base_model_path, "base-model")
+        lora_name = _identity_component(self.config.lora_path, "base-only")
+        skill_name = _identity_component(self.config.skill_file, "inline-skill" if self.config.skill_text else "no-skill")
+        folder_name = f"{base_name}__{lora_name}__{skill_name}__{_short_hash(identity_text)}"
+        return self.memory_root / sanitize_session_id(folder_name)
+
+    @staticmethod
+    def new_session_id() -> str:
+        return datetime.now().strftime("%Y%m%d-%H%M%S")
+
+    def create_session(self, session_id: Optional[str] = None) -> Dict:
+        session_id = sanitize_session_id(session_id or self.new_session_id())
+        original_session_id = session_id
+        counter = 2
+        while (self.session_root / session_id).exists():
+            session_id = sanitize_session_id(f"{original_session_id}-{counter:02d}")
+            counter += 1
+        path = self._session_dir(session_id)
+        self._save_session_meta(
+            session_id,
+            {"role_mode": self.config.role_mode_default, "last_activity_ts": None},
+        )
+        return {
+            "session_id": session_id,
+            "session_path": str(path),
+            "memory_scope_path": str(self.session_root),
+        }
 
     def _ensure_model_loaded(self):
         if self._model is not None and self._tokenizer is not None:
@@ -152,10 +203,13 @@ class RoleChatService:
     def _session_dir(self, session_id: str) -> Path:
         path = self.session_root / sanitize_session_id(session_id)
         path.mkdir(parents=True, exist_ok=True)
+        (path / "short_term").mkdir(exist_ok=True)
+        (path / "long_term").mkdir(exist_ok=True)
+        (path / "graph").mkdir(exist_ok=True)
         return path
 
     def _meta_path(self, session_id: str) -> Path:
-        return self._session_dir(session_id) / "session_meta.json"
+        return self._session_dir(session_id) / "short_term" / "session_meta.json"
 
     def _load_session_meta(self, session_id: str) -> Dict:
         path = self._meta_path(session_id)
@@ -184,11 +238,11 @@ class RoleChatService:
 
         base = self._session_dir(session_id)
         runtime = MemoryRuntime(
-            memory_file=str(base / "memories_v2.json"),
-            index_file=str(base / "memories_v2.faiss"),
-            profile_file=str(base / "user_profile_v1.json"),
-            state_file=str(base / "memory_state_v1.json"),
-            knowledge_file=str(base / "knowledge_graph_v1.json"),
+            memory_file=str(base / "long_term" / "memories_v2.json"),
+            index_file=str(base / "long_term" / "memories_v2.faiss"),
+            profile_file=str(base / "graph" / "user_profile_v1.json"),
+            state_file=str(base / "short_term" / "memory_state_v1.json"),
+            knowledge_file=str(base / "graph" / "knowledge_graph_v1.json"),
             memory_write_judge=self._memory_write_judge,
             user_subject=self.config.user_subject,
             assistant_label=self.config.role_name,
@@ -311,7 +365,9 @@ class RoleChatService:
         if memory_context:
             final_system += "\n\n" + memory_context
 
-        messages = [{"role": "system", "content": final_system}]
+        messages = []
+        if final_system.strip():
+            messages.append({"role": "system", "content": final_system.strip()})
         messages.extend(runtime.recent_history(max_messages=6))
         messages.append({"role": "user", "content": user_text})
         return messages

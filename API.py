@@ -46,6 +46,12 @@ class ConsolidateResponse(BaseModel):
     result: dict
 
 
+class SessionResponse(BaseModel):
+    session_id: str
+    session_path: str
+    memory_scope_path: str
+
+
 class ConfigResponse(BaseModel):
     config_file: str
     base_model_path: str = ""
@@ -150,6 +156,8 @@ def create_app(config_file: Optional[str] = None) -> FastAPI:
             "skill_file": service.config.skill_file,
             "skill_text_present": bool(service.config.skill_text),
             "quantization_mode": service.config.quantization_mode,
+            "memory_root": str(service.memory_root),
+            "memory_scope_path": str(service.session_root),
         }
 
     @app.get("/config", response_model=ConfigResponse)
@@ -183,6 +191,10 @@ def create_app(config_file: Optional[str] = None) -> FastAPI:
             max_new_tokens=max_new_tokens,
         )
         return ChatResponse(text=text, session_id=session_id)
+
+    @app.post("/sessions", response_model=SessionResponse)
+    async def create_session():
+        return SessionResponse(**get_service().create_session())
 
     @app.post("/consolidate/{session_id}", response_model=ConsolidateResponse)
     async def consolidate(session_id: str):

@@ -2,15 +2,15 @@ import json
 import re
 from pathlib import Path
 
-INPUT_FILE = "meiling_sft_final_clean.jsonl"   # 你的原始文件
-OUTPUT_FILE = "meiling_sft_final_train.jsonl"  # 清洗后文件
+INPUT_FILE = "role_sft_source.jsonl"
+OUTPUT_FILE = "role_sft_train.jsonl"
 
 # 是否保留 system
 KEEP_SYSTEM = False
 
 # 如果保留 system，是否统一替换成短版
 SHORTEN_SYSTEM = False
-SHORT_SYSTEM_TEXT = "你是秦谷美铃，请用她的语气与制作人对话。"
+SHORT_SYSTEM_TEXT = ""
 
 # 允许的 role
 ALLOWED_ROLES = {"system", "user", "assistant"}
@@ -23,10 +23,6 @@ BAD_PATTERNS = [
     r"^场景[:：]",
     r"^时间[:：]",
     r"^旁白[:：]",
-    r"^美铃[:：]",
-    r"^秦谷美铃[:：]",
-    r"^制作人[:：]",
-    r"^プロデューサー[:：]",
     r"^\s*（.*?）\s*$",   # 整句只有括号说明
     r"^\s*\(.*?\)\s*$",
 ]
@@ -51,7 +47,7 @@ def is_bad_text(text: str) -> bool:
     role_tag_hits = 0
     for line in t.splitlines():
         s = line.strip()
-        if re.match(r"^(美铃|秦谷美铃|制作人|プロデューサー)[:：]", s):
+        if re.match(r"^.{1,24}[:：]", s):
             role_tag_hits += 1
     if role_tag_hits >= 1:
         return True

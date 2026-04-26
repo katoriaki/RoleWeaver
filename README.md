@@ -60,13 +60,14 @@ Endpoints:
 - `POST /consolidate/{session_id}`
 - `GET /config`
 - `POST /config`
+- `POST /sessions`
 
 ## Windows Launcher And Web UI
 
 On Windows, double-click `start_roleweaver.bat` from the project root. The launcher will:
 
 - create `roleweaver.config.csv` from the example if it does not exist
-- remind you to fill `base_model_path`, `lora_path`, and `skill_file`
+- remind you to fill `base_model_path`, optional `lora_path`, optional `skill_file` or `skill_text`, and `quantization_mode`
 - start the FastAPI backend on `127.0.0.1:8000`
 - open the local ChatGPT-style frontend at `http://127.0.0.1:8000/`
 
@@ -82,6 +83,8 @@ The web UI includes a Settings panel with Chinese, Japanese, and English interfa
 - `ui_language`
 
 Settings are saved back to `roleweaver.config.csv` through `POST /config`. After saving, the in-process RoleWeaver service cache is reset, so the next chat request loads the model with the new settings.
+
+The web UI also has an explicit Exit button. Exit and browser page close both trigger memory consolidation for the current session.
 
 If the browser says `127.0.0.1 refused to connect`, the backend did not start or crashed before binding the port. Keep the launcher window open and check the printed error. Common causes are:
 
@@ -100,7 +103,7 @@ The launcher also offers to install these two packages automatically.
 
 ## Memory System
 
-RoleWeaver uses a per-session hybrid memory runtime. Each `session_id` gets its own memory directory, so different users or roles do not share private conversation state unless you deliberately reuse the same session.
+RoleWeaver uses a local `memory/` directory with two levels of isolation. First, it creates a memory scope for the current base model, LoRA adapter, and skill configuration. Then each session gets its own timestamp-based folder inside that scope. Different model/LoRA/skill combinations do not share memory unless you deliberately point them at the same files and session.
 
 The memory layer has four parts:
 
@@ -108,6 +111,23 @@ The memory layer has four parts:
 - episodic memory: stores selected long-term events, preferences, and relationship facts
 - knowledge graph: stores structured triples such as user facts, role facts, and stable relationship information
 - profile view: builds a compact user profile from graph facts and injects it into future prompts
+
+The on-disk layout is:
+
+```text
+memory/
+  base__lora__skill__hash/
+    20260426-153012/
+      short_term/
+        session_meta.json
+        memory_state_v1.json
+      long_term/
+        memories_v2.json
+        memories_v2.faiss
+      graph/
+        knowledge_graph_v1.json
+        user_profile_v1.json
+```
 
 At chat time, RoleWeaver builds a memory context packet from the current user message. It retrieves relevant episodic memories, profile facts, and character knowledge, then renders them into the prompt as sections.
 
