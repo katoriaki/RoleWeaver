@@ -39,7 +39,8 @@
     .app {
       display: grid;
       grid-template-columns: 304px minmax(0, 1fr);
-      min-height: 100vh;
+      height: 100vh;
+      overflow: hidden;
     }
 
     .sidebar {
@@ -50,6 +51,7 @@
       flex-direction: column;
       gap: 20px;
       border-right: 1px solid rgba(255, 255, 255, 0.06);
+      min-height: 0;
     }
 
     .brand h1 {
@@ -112,12 +114,50 @@
       gap: 10px;
     }
 
+    .menu-wrap {
+      position: relative;
+    }
+
+    .more-menu {
+      display: none;
+      position: absolute;
+      z-index: 10;
+      left: 0;
+      right: 0;
+      top: calc(100% + 6px);
+      padding: 6px;
+      background: #202733;
+      border: 1px solid #3a4656;
+      border-radius: 8px;
+      box-shadow: 0 16px 32px rgba(0, 0, 0, 0.28);
+    }
+
+    .more-menu.open {
+      display: grid;
+      gap: 4px;
+    }
+
+    .menu-item {
+      width: 100%;
+      background: transparent;
+      color: #eef2f7;
+      padding: 9px 10px;
+      text-align: left;
+    }
+
+    .menu-item:hover {
+      background: #303948;
+    }
+
     .history {
       display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
       gap: 8px;
+      flex: 1;
       min-height: 120px;
       border-top: 1px solid var(--sidebar-line);
       padding-top: 14px;
+      overflow: hidden;
     }
 
     .history-title {
@@ -128,10 +168,11 @@
 
     .history-list {
       display: grid;
+      align-content: start;
       gap: 6px;
-      max-height: 260px;
       overflow-y: auto;
       padding-right: 2px;
+      min-height: 0;
     }
 
     .history-item {
@@ -180,12 +221,12 @@
 
     .status {
       margin-top: auto;
-      padding: 12px;
+      padding: 9px 10px;
       background: rgba(255, 255, 255, 0.04);
       border-radius: 8px;
       color: #cbd5e1;
       font-size: 12px;
-      line-height: 1.55;
+      line-height: 1.35;
       white-space: pre-wrap;
       word-break: break-word;
       border: 1px solid var(--sidebar-line);
@@ -525,10 +566,15 @@
 
       <div class="side-actions">
         <button class="side-button" id="newChatButton" type="button" data-i18n="newChat">New chat</button>
-        <button class="side-button" id="settingsButton" type="button" data-i18n="settings">Settings</button>
-        <button class="side-button" id="consolidateButton" type="button" data-i18n="consolidate">Consolidate memory</button>
-        <button class="side-button" id="healthButton" type="button" data-i18n="checkRuntime">Check runtime</button>
-        <button class="side-button" id="exitButton" type="button" data-i18n="exit">Exit</button>
+        <div class="menu-wrap">
+          <button class="side-button" id="moreButton" type="button" data-i18n="more">More</button>
+          <div class="more-menu" id="moreMenu">
+            <button class="menu-item" id="settingsButton" type="button" data-i18n="settings">Settings</button>
+            <button class="menu-item" id="consolidateButton" type="button" data-i18n="consolidate">Consolidate memory</button>
+            <button class="menu-item" id="healthButton" type="button" data-i18n="checkRuntime">Check runtime</button>
+            <button class="menu-item" id="exitButton" type="button" data-i18n="exit">Exit</button>
+          </div>
+        </div>
       </div>
 
       <div class="history">
@@ -638,6 +684,7 @@
         sessionId: "会话 ID",
         maxTokens: "最大生成 token",
         newChat: "新会话",
+        more: "更多",
         settings: "设置",
         consolidate: "整理记忆",
         checkRuntime: "检查运行状态",
@@ -664,6 +711,8 @@
         reloadConfig: "重新读取",
         saveSettings: "保存设置",
         connecting: "正在连接 RoleWeaver...",
+        ready: "已连接",
+        offlineStatus: "未连接",
         thinking: "正在思考...",
         requestFailed: "请求失败",
         requestFailedToast: "请求失败，请检查终端日志和模型配置。",
@@ -685,6 +734,7 @@
         sessionId: "セッション ID",
         maxTokens: "最大生成トークン",
         newChat: "新規チャット",
+        more: "その他",
         settings: "設定",
         consolidate: "記憶を整理",
         checkRuntime: "状態を確認",
@@ -711,6 +761,8 @@
         reloadConfig: "再読み込み",
         saveSettings: "保存",
         connecting: "RoleWeaver に接続中...",
+        ready: "接続済み",
+        offlineStatus: "未接続",
         thinking: "考えています...",
         requestFailed: "リクエスト失敗",
         requestFailedToast: "失敗しました。ターミナルログとモデル設定を確認してください。",
@@ -732,6 +784,7 @@
         sessionId: "Session ID",
         maxTokens: "Max new tokens",
         newChat: "New chat",
+        more: "More",
         settings: "Settings",
         consolidate: "Consolidate memory",
         checkRuntime: "Check runtime",
@@ -758,6 +811,8 @@
         reloadConfig: "Reload",
         saveSettings: "Save settings",
         connecting: "Connecting to RoleWeaver...",
+        ready: "Connected",
+        offlineStatus: "Disconnected",
         thinking: "Thinking...",
         requestFailed: "Request failed",
         requestFailedToast: "Request failed. Check terminal logs and model configuration.",
@@ -795,6 +850,8 @@
     const historyList = document.getElementById("historyList");
     const warningBox = document.getElementById("warningBox");
     const healthPill = document.getElementById("healthPill");
+    const moreButton = document.getElementById("moreButton");
+    const moreMenu = document.getElementById("moreMenu");
     const roleName = document.getElementById("roleName");
     const roleSubtitle = document.getElementById("roleSubtitle");
     const toast = document.getElementById("toast");
@@ -854,6 +911,10 @@
       toast.classList.add("show");
       window.clearTimeout(showToast.timer);
       showToast.timer = window.setTimeout(() => toast.classList.remove("show"), 3400);
+    }
+
+    function closeMoreMenu() {
+      moreMenu.classList.remove("open");
     }
 
     function scrollToBottom() {
@@ -999,19 +1060,12 @@
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
         healthPill.textContent = t("online");
-        roleName.textContent = data.role_name || "RoleWeaver Chat";
-        const skillStatus = data.skill_file || (data.skill_text_present ? t("inlineSkillPresent") : t("noSkill"));
-        roleSubtitle.textContent = skillStatus;
-        statusBox.textContent = [
-          "API: online",
-          `Role: ${data.role_name || "RoleWeaver"}`,
-          `Base: ${data.base_model_path || config.base_model_path || "-"}`,
-          data.lora_enabled ? `LoRA: ${data.lora_path}` : t("loraDisabled"),
-          `Mode: ${data.quantization_mode || config.quantization_mode || "4bit"}`,
-        ].join("\n");
+        roleName.textContent = "RoleWeaver Chat";
+        roleSubtitle.textContent = t("subtitle");
+        statusBox.textContent = t("ready");
       } catch (err) {
         healthPill.textContent = t("offline");
-        statusBox.textContent = `API offline: ${err.message}`;
+        statusBox.textContent = t("offlineStatus");
       }
       renderSessionList();
     }
@@ -1076,6 +1130,7 @@
     });
 
     document.getElementById("newChatButton").addEventListener("click", () => {
+      closeMoreMenu();
       state.messages = [];
       saveMessages();
       renderMessages();
@@ -1088,6 +1143,7 @@
     });
 
     document.getElementById("settingsButton").addEventListener("click", async () => {
+      closeMoreMenu();
       try {
         await loadConfig();
       } catch (err) {
@@ -1149,6 +1205,7 @@
     });
 
     document.getElementById("consolidateButton").addEventListener("click", async () => {
+      closeMoreMenu();
       const sessionId = encodeURIComponent(sessionInput.value.trim() || "web");
       try {
         const res = await fetch(`/consolidate/${sessionId}`, { method: "POST" });
@@ -1160,6 +1217,7 @@
     });
 
     document.getElementById("exitButton").addEventListener("click", async () => {
+      closeMoreMenu();
       const sessionId = encodeURIComponent(sessionInput.value.trim() || "web");
       try {
         const res = await fetch(`/consolidate/${sessionId}`, { method: "POST" });
@@ -1172,7 +1230,21 @@
       }
     });
 
-    document.getElementById("healthButton").addEventListener("click", () => checkHealth({ refreshConfig: false }));
+    document.getElementById("healthButton").addEventListener("click", () => {
+      closeMoreMenu();
+      checkHealth({ refreshConfig: false });
+    });
+
+    moreButton.addEventListener("click", (event) => {
+      event.stopPropagation();
+      moreMenu.classList.toggle("open");
+    });
+
+    document.addEventListener("click", (event) => {
+      if (!moreMenu.contains(event.target) && event.target !== moreButton) {
+        closeMoreMenu();
+      }
+    });
 
     window.addEventListener("pagehide", consolidateWithBeacon);
     window.addEventListener("beforeunload", consolidateWithBeacon);
