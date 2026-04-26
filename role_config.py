@@ -16,6 +16,7 @@ DEFAULT_BASE_MODEL_PATH = str(PROJECT_ROOT / "qwen35-9b")
 DEFAULT_LORA_PATH = str(PROJECT_ROOT / "meiling-qwen35-9b-lora")
 DEFAULT_SESSION_ROOT = str(PROJECT_ROOT / "data" / "sessions")
 DEFAULT_IDLE_CONSOLIDATION_SECONDS = 600
+DEFAULT_QUANTIZATION_MODE = "4bit"
 DEFAULT_CONFIG_FILENAMES = (
     "roleweaver.config.csv",
     "roleweaver.config.toml",
@@ -104,6 +105,29 @@ def read_optional_text(path: Optional[str]) -> str:
     return candidate.read_text(encoding="utf-8").strip()
 
 
+def normalize_optional_path(value: Optional[str]) -> Optional[str]:
+    value = _clean_config_value(value)
+    return value if value else None
+
+
+def normalize_quantization_mode(value: Optional[str]) -> str:
+    normalized = (_clean_config_value(value) or DEFAULT_QUANTIZATION_MODE).lower()
+    aliases = {
+        "4bite": "4bit",
+        "4-bit": "4bit",
+        "8-bit": "8bit",
+        "bfloat16": "bf16",
+        "float16": "fp16",
+        "full": "none",
+        "no": "none",
+        "off": "none",
+    }
+    normalized = aliases.get(normalized, normalized)
+    if normalized not in {"4bit", "8bit", "bf16", "fp16", "none"}:
+        return DEFAULT_QUANTIZATION_MODE
+    return normalized
+
+
 def discover_config_file(explicit_path: Optional[str] = None) -> Optional[Path]:
     requested = explicit_path or os.getenv("ROLEWEAVER_CONFIG_FILE")
     if requested:
@@ -188,8 +212,9 @@ class RoleConfig:
     role_name: str = "RoleWeaver"
     user_subject: str = "用户"
     base_model_path: str = DEFAULT_BASE_MODEL_PATH
-    lora_path: str = DEFAULT_LORA_PATH
+    lora_path: Optional[str] = DEFAULT_LORA_PATH
     session_root: str = DEFAULT_SESSION_ROOT
+    quantization_mode: str = DEFAULT_QUANTIZATION_MODE
     system_prompt: str = DEFAULT_ROLE_SYSTEM_PROMPT
     normal_system_prompt: str = NORMAL_SYSTEM_PROMPT
     memory_judge_system_prompt: str = DEFAULT_MEMORY_JUDGE_SYSTEM_PROMPT
@@ -221,11 +246,18 @@ class RoleConfig:
                 return env_value
             return default
 
-        skill_file = pick("skill_file", "ROLEWEAVER_SKILL_FILE")
-        skill_text = overrides.pop("skill_text", "") or read_optional_text(skill_file)
+        skill_file = normalize_optional_path(pick("skill_file", "ROLEWEAVER_SKILL_FILE"))
+        inline_skill = (
+            overrides.pop("skill_text", None)
+            or pick("skill_text", "ROLEWEAVER_SKILL_TEXT")
+            or pick("inline_skill", "ROLEWEAVER_INLINE_SKILL")
+            or ""
+        )
+        file_skill = read_optional_text(skill_file) if skill_file else ""
+        skill_text = "\n\n".join(piece.strip() for piece in [file_skill, inline_skill] if piece and piece.strip())
 
         base_model_path = pick("base_model_path", "ROLEWEAVER_BASE_MODEL_PATH", DEFAULT_BASE_MODEL_PATH)
-        lora_path = pick("lora_path", "ROLEWEAVER_LORA_PATH", DEFAULT_LORA_PATH)
+        lora_path = normalize_optional_path(pick("lora_path", "ROLEWEAVER_LORA_PATH", DEFAULT_LORA_PATH))
         role_name = pick("role_name", "ROLEWEAVER_ROLE_NAME", infer_role_name(lora_path, skill_file))
         enter_phrases = _split_env_list(os.getenv("ROLEWEAVER_ENTER_PHRASES"))
         exit_phrases = _split_env_list(os.getenv("ROLEWEAVER_EXIT_PHRASES"))
@@ -237,6 +269,9 @@ class RoleConfig:
             base_model_path=base_model_path,
             lora_path=lora_path,
             session_root=pick("session_root", "ROLEWEAVER_SESSION_ROOT", DEFAULT_SESSION_ROOT),
+            quantization_mode=normalize_quantization_mode(
+                pick("quantization_mode", "ROLEWEAVER_QUANTIZATION_MODE", DEFAULT_QUANTIZATION_MODE)
+            ),
             system_prompt=pick("system_prompt", "ROLEWEAVER_SYSTEM_PROMPT", DEFAULT_ROLE_SYSTEM_PROMPT),
             normal_system_prompt=pick("normal_system_prompt", "ROLEWEAVER_NORMAL_SYSTEM_PROMPT", NORMAL_SYSTEM_PROMPT),
             skill_file=skill_file,

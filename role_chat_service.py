@@ -72,7 +72,6 @@ class RoleChatService:
 
             try:
                 import torch
-                from peft import PeftModel
                 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
             except ModuleNotFoundError as exc:
                 missing = exc.name or "unknown"
@@ -80,7 +79,7 @@ class RoleChatService:
                     "当前 Python 环境缺少运行本地模型所需依赖。\n"
                     f"缺失模块: {missing}\n"
                     f"当前解释器: {os.sys.executable}\n\n"
-                    "至少需要：torch transformers peft accelerate sentence-transformers faiss-cpu"
+                    "至少需要：torch transformers accelerate sentence-transformers faiss-cpu；加载 LoRA 时还需要 peft"
                 ) from exc
 
             self._torch = torch
@@ -99,23 +98,52 @@ class RoleChatService:
             if tokenizer.pad_token is None:
                 tokenizer.pad_token = tokenizer.eos_token
 
-            print("加载 4bit base model...")
-            bnb_config = BitsAndBytesConfig(
-                load_in_4bit=True,
-                bnb_4bit_quant_type="nf4",
-                bnb_4bit_compute_dtype=torch.float16,
-                bnb_4bit_use_double_quant=True,
-            )
+            quantization_mode = (self.config.quantization_mode or "4bit").lower()
+            model_kwargs = {
+                "device_map": "auto",
+                "trust_remote_code": True,
+            }
+            if quantization_mode == "4bit":
+                print("加载 4bit base model...")
+                model_kwargs["quantization_config"] = BitsAndBytesConfig(
+                    load_in_4bit=True,
+                    bnb_4bit_quant_type="nf4",
+                    bnb_4bit_compute_dtype=torch.float16,
+                    bnb_4bit_use_double_quant=True,
+                )
+                model_kwargs["torch_dtype"] = torch.float16
+            elif quantization_mode == "8bit":
+                print("加载 8bit base model...")
+                model_kwargs["quantization_config"] = BitsAndBytesConfig(load_in_8bit=True)
+                model_kwargs["torch_dtype"] = torch.float16
+            elif quantization_mode == "bf16":
+                print("加载 bf16 base model...")
+                model_kwargs["torch_dtype"] = torch.bfloat16
+            elif quantization_mode == "fp16":
+                print("加载 fp16 base model...")
+                model_kwargs["torch_dtype"] = torch.float16
+            else:
+                print("加载 base model without quantization...")
+
             base_model = AutoModelForCausalLM.from_pretrained(
                 self.base_model_path,
-                quantization_config=bnb_config,
-                device_map="auto",
-                torch_dtype=torch.float16,
-                trust_remote_code=True,
+                **model_kwargs,
             )
 
-            print("加载 LoRA adapter...")
-            model = PeftModel.from_pretrained(base_model, self.lora_path)
+            if self.lora_path:
+                try:
+                    from peft import PeftModel
+                except ModuleNotFoundError as exc:
+                    raise RuntimeError(
+                        "当前配置填写了 LoRA adapter，但 Python 环境缺少 peft。\n"
+                        f"当前解释器: {os.sys.executable}\n\n"
+                        "请安装：pip install peft"
+                    ) from exc
+                print("加载 LoRA adapter...")
+                model = PeftModel.from_pretrained(base_model, self.lora_path)
+            else:
+                print("未配置 LoRA adapter，直接使用 base model。")
+                model = base_model
             model.eval()
 
             self._tokenizer = tokenizer

@@ -15,7 +15,6 @@
       --line: #d8dde3;
       --accent: #10a37f;
       --accent-dark: #0c8467;
-      --danger: #b42318;
       --shadow: 0 18px 50px rgba(15, 23, 42, 0.08);
     }
 
@@ -28,7 +27,7 @@
       min-height: 100vh;
       background: var(--bg);
       color: var(--text);
-      font-family: "Segoe UI", "Microsoft YaHei", Arial, sans-serif;
+      font-family: "Segoe UI", "Microsoft YaHei", "Hiragino Sans", Arial, sans-serif;
     }
 
     .app {
@@ -46,14 +45,8 @@
       gap: 18px;
     }
 
-    .brand {
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
-    }
-
     .brand h1 {
-      margin: 0;
+      margin: 0 0 4px;
       font-size: 20px;
       font-weight: 650;
     }
@@ -74,24 +67,29 @@
       font-size: 12px;
     }
 
-    .field input {
+    input,
+    select,
+    textarea {
       width: 100%;
       border: 1px solid #3c414b;
       background: #2b2d35;
       color: #f8fafc;
       border-radius: 8px;
       padding: 10px 11px;
-      font-size: 14px;
+      font: inherit;
       outline: none;
     }
 
-    .field input:focus {
-      border-color: var(--accent);
+    textarea {
+      min-height: 48px;
+      line-height: 1.55;
+      resize: vertical;
     }
 
-    .side-actions {
-      display: grid;
-      gap: 10px;
+    input:focus,
+    select:focus,
+    textarea:focus {
+      border-color: var(--accent);
     }
 
     button {
@@ -99,6 +97,11 @@
       border-radius: 8px;
       cursor: pointer;
       font: inherit;
+    }
+
+    .side-actions {
+      display: grid;
+      gap: 10px;
     }
 
     .side-button {
@@ -120,6 +123,7 @@
       color: #cbd5e1;
       font-size: 12px;
       line-height: 1.55;
+      white-space: pre-wrap;
       word-break: break-word;
     }
 
@@ -131,13 +135,14 @@
     }
 
     .topbar {
-      height: 64px;
+      min-height: 64px;
       border-bottom: 1px solid var(--line);
       background: rgba(255, 255, 255, 0.86);
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 0 24px;
+      gap: 16px;
+      padding: 12px 24px;
       backdrop-filter: blur(10px);
     }
 
@@ -155,6 +160,7 @@
       margin-top: 3px;
       color: var(--muted);
       font-size: 12px;
+      overflow-wrap: anywhere;
     }
 
     .health-pill {
@@ -247,18 +253,12 @@
       padding: 10px;
     }
 
-    textarea {
-      width: 100%;
-      min-height: 48px;
-      max-height: 180px;
-      resize: vertical;
+    .composer textarea {
       border: 0;
-      outline: none;
-      padding: 10px 12px;
-      font: inherit;
-      line-height: 1.55;
       background: transparent;
       color: var(--text);
+      min-height: 48px;
+      max-height: 180px;
     }
 
     .send-button {
@@ -271,12 +271,12 @@
       font-weight: 650;
     }
 
-    .send-button:hover {
+    .send-button:hover,
+    .primary-button:hover {
       background: var(--accent-dark);
     }
 
-    .send-button:disabled,
-    .side-button:disabled {
+    button:disabled {
       cursor: wait;
       opacity: 0.62;
     }
@@ -287,6 +287,89 @@
       color: var(--muted);
       font-size: 12px;
       text-align: center;
+    }
+
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      display: none;
+      place-items: center;
+      padding: 18px;
+      background: rgba(15, 23, 42, 0.42);
+      z-index: 20;
+    }
+
+    .modal-backdrop.open {
+      display: grid;
+    }
+
+    .modal {
+      width: min(760px, 100%);
+      max-height: min(86vh, 820px);
+      overflow: auto;
+      background: #fff;
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+      border: 1px solid var(--line);
+    }
+
+    .modal-header,
+    .modal-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 16px 18px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .modal-footer {
+      border-top: 1px solid var(--line);
+      border-bottom: 0;
+      justify-content: flex-end;
+    }
+
+    .modal-title {
+      margin: 0;
+      font-size: 18px;
+    }
+
+    .settings-grid {
+      display: grid;
+      gap: 14px;
+      padding: 18px;
+    }
+
+    .settings-grid label {
+      color: var(--muted);
+    }
+
+    .settings-grid input,
+    .settings-grid select,
+    .settings-grid textarea {
+      background: #fff;
+      color: var(--text);
+      border-color: var(--line);
+    }
+
+    .settings-note {
+      margin: -4px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    .primary-button {
+      background: var(--accent);
+      color: #fff;
+      padding: 10px 14px;
+      font-weight: 650;
+    }
+
+    .secondary-button {
+      background: var(--panel-soft);
+      color: var(--text);
+      padding: 10px 14px;
     }
 
     .toast {
@@ -305,6 +388,7 @@
       transition: opacity 160ms ease, transform 160ms ease;
       font-size: 13px;
       line-height: 1.5;
+      z-index: 30;
     }
 
     .toast.show {
@@ -317,19 +401,12 @@
         grid-template-columns: 1fr;
       }
 
-      .sidebar {
-        min-height: auto;
-      }
-
       .main {
         height: auto;
         min-height: 100vh;
       }
 
-      .topbar {
-        padding: 0 16px;
-      }
-
+      .topbar,
       .messages,
       .composer-wrap {
         padding-left: 14px;
@@ -352,23 +429,24 @@
     <aside class="sidebar">
       <div class="brand">
         <h1>RoleWeaver</h1>
-        <span>Local role chat runtime</span>
+        <span data-i18n="tagline">Local role chat runtime</span>
       </div>
 
       <div class="field">
-        <label for="sessionId">Session ID</label>
+        <label for="sessionId" data-i18n="sessionId">Session ID</label>
         <input id="sessionId" value="web" autocomplete="off">
       </div>
 
       <div class="field">
-        <label for="maxTokens">Max new tokens</label>
+        <label for="maxTokens" data-i18n="maxTokens">Max new tokens</label>
         <input id="maxTokens" type="number" min="16" max="4096" step="16" value="160">
       </div>
 
       <div class="side-actions">
-        <button class="side-button" id="newChatButton" type="button">New chat</button>
-        <button class="side-button" id="consolidateButton" type="button">Consolidate memory</button>
-        <button class="side-button" id="healthButton" type="button">Check runtime</button>
+        <button class="side-button" id="newChatButton" type="button" data-i18n="newChat">New chat</button>
+        <button class="side-button" id="settingsButton" type="button" data-i18n="settings">Settings</button>
+        <button class="side-button" id="consolidateButton" type="button" data-i18n="consolidate">Consolidate memory</button>
+        <button class="side-button" id="healthButton" type="button" data-i18n="checkRuntime">Check runtime</button>
       </div>
 
       <div class="status" id="statusBox">Connecting to RoleWeaver...</div>
@@ -378,36 +456,221 @@
       <header class="topbar">
         <div class="topbar-title">
           <strong id="roleName">RoleWeaver Chat</strong>
-          <span id="roleSubtitle">ChatGPT-style local frontend</span>
+          <span id="roleSubtitle" data-i18n="subtitle">ChatGPT-style local frontend</span>
         </div>
-        <div class="health-pill" id="healthPill">offline</div>
+        <div class="health-pill" id="healthPill" data-i18n="offline">offline</div>
       </header>
 
       <section class="messages" id="messages">
         <div class="empty" id="emptyState">
           <div>
-            <h2>开始和你的角色聊天</h2>
-            <p>输入一条消息，RoleWeaver 会调用本地 API，并自动使用当前 session 的记忆。</p>
+            <h2 data-i18n="emptyTitle">Start chatting with your role</h2>
+            <p data-i18n="emptyBody">Send a message. RoleWeaver will call the local API and use this session's memory.</p>
           </div>
         </div>
       </section>
 
       <section class="composer-wrap">
         <form class="composer" id="chatForm">
-          <textarea id="promptInput" rows="1" placeholder="给角色发送消息，Enter 发送，Shift+Enter 换行"></textarea>
-          <button class="send-button" id="sendButton" type="submit">Send</button>
+          <textarea id="promptInput" rows="1" data-i18n-placeholder="promptPlaceholder" placeholder="Send a message. Enter sends, Shift+Enter starts a new line."></textarea>
+          <button class="send-button" id="sendButton" type="submit" data-i18n="send">Send</button>
         </form>
-        <div class="hint">前端不会保存到服务器；浏览器本地只缓存当前页面消息。</div>
+        <div class="hint" data-i18n="hint">The browser only caches the visible chat locally.</div>
       </section>
     </main>
+  </div>
+
+  <div class="modal-backdrop" id="settingsModal">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+      <div class="modal-header">
+        <h2 class="modal-title" id="settingsTitle" data-i18n="settings">Settings</h2>
+        <button class="secondary-button" id="closeSettingsButton" type="button" data-i18n="close">Close</button>
+      </div>
+
+      <form id="settingsForm">
+        <div class="settings-grid">
+          <div class="field">
+            <label for="languageSelect" data-i18n="language">Language</label>
+            <select id="languageSelect">
+              <option value="zh">中文</option>
+              <option value="ja">日本語</option>
+              <option value="en">English</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label for="baseModelPath" data-i18n="baseModelPath">Base model path</label>
+            <input id="baseModelPath" autocomplete="off">
+          </div>
+
+          <div class="field">
+            <label for="loraPath" data-i18n="loraPath">LoRA adapter path</label>
+            <input id="loraPath" autocomplete="off">
+            <p class="settings-note" data-i18n="loraNote">Leave blank to start from the base model without loading LoRA.</p>
+          </div>
+
+          <div class="field">
+            <label for="skillFile" data-i18n="skillFile">Skill file path</label>
+            <input id="skillFile" autocomplete="off">
+          </div>
+
+          <div class="field">
+            <label for="skillText" data-i18n="inlineSkill">Inline skill</label>
+            <textarea id="skillText" rows="5" data-i18n-placeholder="inlineSkillPlaceholder" placeholder="Optional small role notes or speaking style."></textarea>
+          </div>
+
+          <div class="field">
+            <label for="quantizationMode" data-i18n="quantization">Model loading mode</label>
+            <select id="quantizationMode">
+              <option value="4bit">4bit</option>
+              <option value="8bit">8bit</option>
+              <option value="bf16">bf16</option>
+              <option value="fp16">fp16</option>
+              <option value="none">none</option>
+            </select>
+            <p class="settings-note" data-i18n="quantNote">Default is 4bit. Use bf16/none on large GPU servers if you do not need quantization.</p>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button class="secondary-button" id="reloadConfigButton" type="button" data-i18n="reloadConfig">Reload</button>
+          <button class="primary-button" id="saveSettingsButton" type="submit" data-i18n="saveSettings">Save settings</button>
+        </div>
+      </form>
+    </div>
   </div>
 
   <div class="toast" id="toast"></div>
 
   <script>
+    const i18n = {
+      zh: {
+        tagline: "本地角色聊天运行时",
+        sessionId: "会话 ID",
+        maxTokens: "最大生成 token",
+        newChat: "新会话",
+        settings: "设置",
+        consolidate: "整理记忆",
+        checkRuntime: "检查运行状态",
+        subtitle: "类 ChatGPT 本地前端",
+        offline: "离线",
+        online: "在线",
+        emptyTitle: "开始和你的角色聊天",
+        emptyBody: "输入一条消息，RoleWeaver 会调用本地 API，并自动使用当前 session 的记忆。",
+        promptPlaceholder: "给角色发送消息，Enter 发送，Shift+Enter 换行",
+        hint: "前端不会保存到服务器；浏览器本地只缓存当前页面消息。",
+        send: "发送",
+        close: "关闭",
+        language: "界面语言",
+        baseModelPath: "底模路径",
+        loraPath: "LoRA adapter 路径",
+        loraNote: "留空则不加载 LoRA，直接使用底模启动。",
+        skillFile: "Skill 文件路径",
+        inlineSkill: "内联 skill",
+        inlineSkillPlaceholder: "可选：直接写少量角色设定、语气、边界，不需要单独传文件。",
+        quantization: "模型加载方式",
+        quantNote: "默认 4bit。服务器显存充足时可选 bf16/none。",
+        reloadConfig: "重新读取",
+        saveSettings: "保存设置",
+        connecting: "正在连接 RoleWeaver...",
+        thinking: "正在思考...",
+        requestFailed: "请求失败",
+        requestFailedToast: "请求失败，请检查终端日志和模型配置。",
+        memoryDone: "记忆整理完成。",
+        memoryFailed: "记忆整理失败",
+        saved: "设置已保存。下一次聊天会按新配置加载模型。",
+        saveFailed: "保存设置失败",
+        noSkill: "未配置 skill",
+        inlineSkillPresent: "已填写内联 skill",
+        loraDisabled: "LoRA: disabled",
+      },
+      ja: {
+        tagline: "ローカル・ロールチャット実行環境",
+        sessionId: "セッション ID",
+        maxTokens: "最大生成トークン",
+        newChat: "新規チャット",
+        settings: "設定",
+        consolidate: "記憶を整理",
+        checkRuntime: "状態を確認",
+        subtitle: "ChatGPT風ローカルフロントエンド",
+        offline: "オフライン",
+        online: "オンライン",
+        emptyTitle: "キャラクターと話し始める",
+        emptyBody: "メッセージを送ると、RoleWeaver がローカル API とこのセッションの記憶を使って応答します。",
+        promptPlaceholder: "メッセージを入力。Enterで送信、Shift+Enterで改行。",
+        hint: "表示中の会話だけをブラウザに一時保存します。",
+        send: "送信",
+        close: "閉じる",
+        language: "表示言語",
+        baseModelPath: "ベースモデルのパス",
+        loraPath: "LoRA adapter のパス",
+        loraNote: "空欄にすると LoRA を読み込まず、ベースモデルだけで起動します。",
+        skillFile: "Skill ファイルのパス",
+        inlineSkill: "インライン skill",
+        inlineSkillPlaceholder: "任意：短いキャラ設定、口調、制約を直接入力できます。",
+        quantization: "モデル読み込み方式",
+        quantNote: "既定は 4bit。GPU メモリに余裕があるサーバーでは bf16/none も使えます。",
+        reloadConfig: "再読み込み",
+        saveSettings: "保存",
+        connecting: "RoleWeaver に接続中...",
+        thinking: "考えています...",
+        requestFailed: "リクエスト失敗",
+        requestFailedToast: "失敗しました。ターミナルログとモデル設定を確認してください。",
+        memoryDone: "記憶の整理が完了しました。",
+        memoryFailed: "記憶整理に失敗",
+        saved: "設定を保存しました。次のチャットから新しい設定で読み込みます。",
+        saveFailed: "設定保存に失敗",
+        noSkill: "skill 未設定",
+        inlineSkillPresent: "インライン skill あり",
+        loraDisabled: "LoRA: disabled",
+      },
+      en: {
+        tagline: "Local role chat runtime",
+        sessionId: "Session ID",
+        maxTokens: "Max new tokens",
+        newChat: "New chat",
+        settings: "Settings",
+        consolidate: "Consolidate memory",
+        checkRuntime: "Check runtime",
+        subtitle: "ChatGPT-style local frontend",
+        offline: "offline",
+        online: "online",
+        emptyTitle: "Start chatting with your role",
+        emptyBody: "Send a message. RoleWeaver will call the local API and use this session's memory.",
+        promptPlaceholder: "Send a message. Enter sends, Shift+Enter starts a new line.",
+        hint: "The browser only caches the visible chat locally.",
+        send: "Send",
+        close: "Close",
+        language: "Language",
+        baseModelPath: "Base model path",
+        loraPath: "LoRA adapter path",
+        loraNote: "Leave blank to start from the base model without loading LoRA.",
+        skillFile: "Skill file path",
+        inlineSkill: "Inline skill",
+        inlineSkillPlaceholder: "Optional small role notes, speaking style, or boundaries.",
+        quantization: "Model loading mode",
+        quantNote: "Default is 4bit. Use bf16/none on large GPU servers if you do not need quantization.",
+        reloadConfig: "Reload",
+        saveSettings: "Save settings",
+        connecting: "Connecting to RoleWeaver...",
+        thinking: "Thinking...",
+        requestFailed: "Request failed",
+        requestFailedToast: "Request failed. Check terminal logs and model configuration.",
+        memoryDone: "Memory consolidation complete.",
+        memoryFailed: "Memory consolidation failed",
+        saved: "Settings saved. The next chat will load with the new configuration.",
+        saveFailed: "Failed to save settings",
+        noSkill: "No skill configured",
+        inlineSkillPresent: "Inline skill present",
+        loraDisabled: "LoRA: disabled",
+      },
+    };
+
     const state = {
       messages: JSON.parse(localStorage.getItem("roleweaver.messages") || "[]"),
+      language: localStorage.getItem("roleweaver.language") || "zh",
       busy: false,
+      config: null,
     };
 
     const messagesEl = document.getElementById("messages");
@@ -421,6 +684,38 @@
     const roleName = document.getElementById("roleName");
     const roleSubtitle = document.getElementById("roleSubtitle");
     const toast = document.getElementById("toast");
+    const settingsModal = document.getElementById("settingsModal");
+    const languageSelect = document.getElementById("languageSelect");
+    const baseModelPath = document.getElementById("baseModelPath");
+    const loraPath = document.getElementById("loraPath");
+    const skillFile = document.getElementById("skillFile");
+    const skillText = document.getElementById("skillText");
+    const quantizationMode = document.getElementById("quantizationMode");
+
+    function t(key) {
+      return (i18n[state.language] && i18n[state.language][key]) || i18n.en[key] || key;
+    }
+
+    function applyLanguage(language) {
+      state.language = i18n[language] ? language : "zh";
+      document.documentElement.lang = state.language === "ja" ? "ja" : state.language === "en" ? "en" : "zh-CN";
+      localStorage.setItem("roleweaver.language", state.language);
+      languageSelect.value = state.language;
+
+      document.querySelectorAll("[data-i18n]").forEach((el) => {
+        el.textContent = t(el.dataset.i18n);
+      });
+      document.querySelectorAll("[data-i18n-placeholder]").forEach((el) => {
+        el.placeholder = t(el.dataset.i18nPlaceholder);
+      });
+      sendButton.textContent = state.busy ? "..." : t("send");
+      if (healthPill.textContent === "online" || healthPill.textContent === i18n.en.online) {
+        healthPill.textContent = t("online");
+      }
+      if (!state.config) {
+        statusBox.textContent = t("connecting");
+      }
+    }
 
     function saveMessages() {
       localStorage.setItem("roleweaver.messages", JSON.stringify(state.messages.slice(-80)));
@@ -430,7 +725,7 @@
       toast.textContent = text;
       toast.classList.add("show");
       window.clearTimeout(showToast.timer);
-      showToast.timer = window.setTimeout(() => toast.classList.remove("show"), 3200);
+      showToast.timer = window.setTimeout(() => toast.classList.remove("show"), 3400);
     }
 
     function scrollToBottom() {
@@ -467,25 +762,47 @@
       state.busy = busy;
       sendButton.disabled = busy;
       promptInput.disabled = busy;
-      sendButton.textContent = busy ? "..." : "Send";
+      sendButton.textContent = busy ? "..." : t("send");
+    }
+
+    function fillSettings(config) {
+      state.config = config;
+      languageSelect.value = config.ui_language || state.language;
+      baseModelPath.value = config.base_model_path || "";
+      loraPath.value = config.lora_path || "";
+      skillFile.value = config.skill_file || "";
+      skillText.value = config.skill_text || "";
+      quantizationMode.value = config.quantization_mode || "4bit";
+      applyLanguage(languageSelect.value);
+    }
+
+    async function loadConfig() {
+      const res = await fetch("/config");
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const config = await res.json();
+      fillSettings(config);
+      return config;
     }
 
     async function checkHealth() {
       try {
+        const config = await loadConfig();
         const res = await fetch("/health");
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
-        healthPill.textContent = "online";
+        healthPill.textContent = t("online");
         roleName.textContent = data.role_name || "RoleWeaver Chat";
-        roleSubtitle.textContent = data.skill_file ? `Skill: ${data.skill_file}` : "No skill file configured";
+        const skillStatus = data.skill_file || (data.skill_text_present ? t("inlineSkillPresent") : t("noSkill"));
+        roleSubtitle.textContent = skillStatus;
         statusBox.textContent = [
           "API: online",
           `Role: ${data.role_name || "RoleWeaver"}`,
-          `Base: ${data.base_model_path || "-"}`,
-          `LoRA: ${data.lora_path || "-"}`,
+          `Base: ${data.base_model_path || config.base_model_path || "-"}`,
+          data.lora_enabled ? `LoRA: ${data.lora_path}` : t("loraDisabled"),
+          `Mode: ${data.quantization_mode || config.quantization_mode || "4bit"}`,
         ].join("\n");
       } catch (err) {
-        healthPill.textContent = "offline";
+        healthPill.textContent = t("offline");
         statusBox.textContent = `API offline: ${err.message}`;
       }
     }
@@ -495,7 +812,7 @@
       const maxNewTokens = Number(maxTokensInput.value || 160);
 
       state.messages.push({ role: "user", content: text });
-      state.messages.push({ role: "assistant", content: "正在思考..." });
+      state.messages.push({ role: "assistant", content: t("thinking") });
       saveMessages();
       renderMessages();
       setBusy(true);
@@ -522,9 +839,9 @@
       } catch (err) {
         state.messages[state.messages.length - 1] = {
           role: "assistant",
-          content: `请求失败：${err.message}`,
+          content: `${t("requestFailed")}：${err.message}`,
         };
-        showToast("请求失败，请检查终端日志和模型配置。");
+        showToast(t("requestFailedToast"));
       } finally {
         saveMessages();
         renderMessages();
@@ -555,19 +872,80 @@
       promptInput.focus();
     });
 
+    document.getElementById("settingsButton").addEventListener("click", async () => {
+      try {
+        await loadConfig();
+      } catch (err) {
+        showToast(`${t("requestFailed")}：${err.message}`);
+      }
+      settingsModal.classList.add("open");
+    });
+
+    document.getElementById("closeSettingsButton").addEventListener("click", () => {
+      settingsModal.classList.remove("open");
+    });
+
+    settingsModal.addEventListener("click", (event) => {
+      if (event.target === settingsModal) {
+        settingsModal.classList.remove("open");
+      }
+    });
+
+    languageSelect.addEventListener("change", () => {
+      applyLanguage(languageSelect.value);
+    });
+
+    document.getElementById("reloadConfigButton").addEventListener("click", async () => {
+      try {
+        await loadConfig();
+      } catch (err) {
+        showToast(`${t("requestFailed")}：${err.message}`);
+      }
+    });
+
+    document.getElementById("settingsForm").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      try {
+        const res = await fetch("/config", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            base_model_path: baseModelPath.value.trim(),
+            lora_path: loraPath.value.trim(),
+            skill_file: skillFile.value.trim(),
+            skill_text: skillText.value.trim(),
+            quantization_mode: quantizationMode.value,
+            ui_language: languageSelect.value,
+          }),
+        });
+        if (!res.ok) {
+          const detail = await res.text();
+          throw new Error(detail || `HTTP ${res.status}`);
+        }
+        const config = await res.json();
+        fillSettings(config);
+        settingsModal.classList.remove("open");
+        showToast(t("saved"));
+        await checkHealth();
+      } catch (err) {
+        showToast(`${t("saveFailed")}：${err.message}`);
+      }
+    });
+
     document.getElementById("consolidateButton").addEventListener("click", async () => {
       const sessionId = encodeURIComponent(sessionInput.value.trim() || "web");
       try {
         const res = await fetch(`/consolidate/${sessionId}`, { method: "POST" });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        showToast("记忆整理完成。");
+        showToast(t("memoryDone"));
       } catch (err) {
-        showToast(`记忆整理失败：${err.message}`);
+        showToast(`${t("memoryFailed")}：${err.message}`);
       }
     });
 
     document.getElementById("healthButton").addEventListener("click", checkHealth);
 
+    applyLanguage(state.language);
     renderMessages();
     checkHealth();
   </script>

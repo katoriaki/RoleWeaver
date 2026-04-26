@@ -13,11 +13,14 @@ Milestone 1 target:
 
 ## Local Chat
 
-Copy `roleweaver.config.example.csv` to `roleweaver.config.csv`, open it in Excel or any text editor, then fill only these three values:
+Copy `roleweaver.config.example.csv` to `roleweaver.config.csv`, open it in Excel, the web Settings panel, or any text editor, then fill the values you need:
 
 - `base_model_path`
-- `lora_path`
-- `skill_file`
+- `lora_path`; optional, leave blank to use only the base model
+- `skill_file`; optional
+- `skill_text`; optional inline skill notes
+- `quantization_mode`; defaults to `4bit`
+- `ui_language`; `zh`, `ja`, or `en`
 
 `roleweaver.config.csv` is ignored by git so local machine paths do not get committed.
 
@@ -55,6 +58,8 @@ Endpoints:
 - `POST /chat`
 - `GET /chat?user_text=...`
 - `POST /consolidate/{session_id}`
+- `GET /config`
+- `POST /config`
 
 ## Windows Launcher And Web UI
 
@@ -66,6 +71,17 @@ On Windows, double-click `start_roleweaver.bat` from the project root. The launc
 - open the local ChatGPT-style frontend at `http://127.0.0.1:8000/`
 
 The web UI lives in `web/index.html`. It calls the same `/chat`, `/health`, and `/consolidate/{session_id}` endpoints as external clients, so it is only a thin local interface over the real RoleWeaver runtime.
+
+The web UI includes a Settings panel with Chinese, Japanese, and English interface text. Settings can update:
+
+- `base_model_path`
+- `lora_path`; leave it blank to run the base model without LoRA
+- `skill_file`
+- short inline `skill_text`, useful when you only need a small role note instead of a full skill file
+- `quantization_mode`; supported values are `4bit`, `8bit`, `bf16`, `fp16`, and `none`
+- `ui_language`
+
+Settings are saved back to `roleweaver.config.csv` through `POST /config`. After saving, the in-process RoleWeaver service cache is reset, so the next chat request loads the model with the new settings.
 
 If the browser says `127.0.0.1 refused to connect`, the backend did not start or crashed before binding the port. Keep the launcher window open and check the printed error. Common causes are:
 

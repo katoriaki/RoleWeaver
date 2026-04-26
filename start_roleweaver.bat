@@ -65,8 +65,9 @@ if not exist "%ROLEWEAVER_CONFIG%" (
   echo.
   echo Please fill these values before the first real run:
   echo   - base_model_path
-  echo   - lora_path
-  echo   - skill_file
+  echo   - lora_path ^(optional; leave blank to use the base model only^)
+  echo   - skill_file or skill_text ^(optional^)
+  echo   - quantization_mode ^(default: 4bit^)
   echo.
   start "" "%ROLEWEAVER_CONFIG%"
   pause
