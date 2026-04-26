@@ -744,13 +744,21 @@ class HybridMemoryStore:
     def _encode_texts(self, texts: List[str]):
         if not texts or self.encoder is None:
             return None
-        vecs = self.encoder.encode(
-            texts,
-            normalize_embeddings=True,
-            convert_to_numpy=True,
-            show_progress_bar=False,
-        )
-        return vecs.astype("float32")
+        sanitized_texts = [str(text or "") for text in texts]
+        try:
+            vecs = self.encoder.encode(
+                sanitized_texts,
+                normalize_embeddings=True,
+                convert_to_numpy=True,
+                show_progress_bar=False,
+            )
+            return vecs.astype("float32")
+        except Exception as exc:
+            print(f"[Memory] embedding 编码失败，降级为词面检索: {exc}")
+            self.encoder = None
+            self.index = None
+            self.embedding_matrix = None
+            return None
 
     def _rebuild_index(self):
         if self.encoder is None:
