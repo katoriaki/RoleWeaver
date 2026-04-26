@@ -56,7 +56,7 @@ Endpoints:
 - `GET /chat?user_text=...`
 - `POST /consolidate/{session_id}`
 
-## LINE Bot
+## LINE Bot（Construction）
 
 The LINE app reads the same `ROLEWEAVER_*` variables plus:
 
@@ -71,7 +71,7 @@ Run with your ASGI server of choice, for example:
 uvicorn line.app:app --host 0.0.0.0 --port 8000
 ```
 
-## QQ Voice Bot
+## QQ Voice Bot（Construction）
 
 QQ voice reply integration lives in `QQbot/`. It uses QQ official bot events, an SSH tunnel to the remote RoleWeaver text API, and local GPT-SoVITS for voice synthesis.
 
