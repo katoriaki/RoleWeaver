@@ -74,6 +74,14 @@ If the browser says `127.0.0.1 refused to connect`, the backend did not start or
 - `skill_file` points to a missing file; leave it blank if the role has no skill file
 - another process is already using port `8000`
 
+If the launcher reports `ModuleNotFoundError: No module named 'fastapi'`, install the web API dependencies:
+
+```powershell
+py -3 -m pip install fastapi "uvicorn[standard]"
+```
+
+The launcher also offers to install these two packages automatically.
+
 ## Memory System
 
 RoleWeaver uses a per-session hybrid memory runtime. Each `session_id` gets its own memory directory, so different users or roles do not share private conversation state unless you deliberately reuse the same session.

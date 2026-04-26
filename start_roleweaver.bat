@@ -25,6 +25,39 @@ if not defined PYTHON_CMD (
   exit /b 1
 )
 
+%PYTHON_CMD% -c "import fastapi, uvicorn" >nul 2>nul
+if errorlevel 1 (
+  echo [RoleWeaver] Missing HTTP server dependencies: fastapi and/or uvicorn.
+  echo [RoleWeaver] These are required for the local web UI.
+  echo.
+  choice /M "Install FastAPI and Uvicorn into the current Python environment now"
+  if errorlevel 2 (
+    echo [RoleWeaver] Install skipped.
+    echo [RoleWeaver] You can install manually with:
+    echo   %PYTHON_CMD% -m pip install fastapi "uvicorn[standard]"
+    pause
+    exit /b 1
+  )
+
+  %PYTHON_CMD% -m pip --version >nul 2>nul
+  if errorlevel 1 (
+    echo [RoleWeaver] pip was not found. Trying ensurepip...
+    %PYTHON_CMD% -m ensurepip --upgrade
+    if errorlevel 1 (
+      echo [RoleWeaver] Could not enable pip. Please install pip manually.
+      pause
+      exit /b 1
+    )
+  )
+
+  %PYTHON_CMD% -m pip install fastapi "uvicorn[standard]"
+  if errorlevel 1 (
+    echo [RoleWeaver] Failed to install FastAPI/Uvicorn.
+    pause
+    exit /b 1
+  )
+)
+
 if not exist "%ROLEWEAVER_CONFIG%" (
   echo [RoleWeaver] %ROLEWEAVER_CONFIG% was not found.
   echo [RoleWeaver] Creating it from roleweaver.config.example.csv.
