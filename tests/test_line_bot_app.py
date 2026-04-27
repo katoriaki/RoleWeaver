@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 from linebot.v3.webhooks import GroupSource, UserSource
 
 from line import app as line_bot_app
-from misuzu_chat_service import (
+from role_config import (
     DEFAULT_IDLE_CONSOLIDATION_SECONDS,
     normalize_idle_consolidation_seconds,
 )
@@ -20,12 +20,20 @@ class LineBotAppTestCase(unittest.TestCase):
         self.assertEqual(len(chunks[1]), 4500)
         self.assertEqual(len(chunks[2]), 1)
 
+    def test_split_reply_text_falls_back_for_empty_reply(self):
+        self.assertEqual(line_bot_app.split_reply_text(""), ["..."])
+
     def test_build_session_id_from_line_source(self):
         user_source = UserSource(user_id="u123")
         group_source = GroupSource(group_id="g456", user_id="u789")
 
         self.assertEqual(line_bot_app.build_session_id(user_source), "line_user_u123")
         self.assertEqual(line_bot_app.build_session_id(group_source), "line_group_g456_u789")
+
+    def test_builtin_commands_do_not_require_line_credentials(self):
+        self.assertEqual(line_bot_app.handle_builtin_command("/ping"), "pong")
+        self.assertIn("RoleWeaver LINE Bot is online", line_bot_app.handle_builtin_command("/help"))
+        self.assertIsNone(line_bot_app.handle_builtin_command("hello"))
 
     def test_health_and_missing_signature(self):
         client = TestClient(line_bot_app.app)
@@ -47,7 +55,7 @@ class LineBotAppTestCase(unittest.TestCase):
         )
 
         line_bot_app.get_chat_service.cache_clear()
-        with patch.dict("os.environ", {"MISUZU_IDLE_CONSOLIDATION_SECONDS": "42"}, clear=False):
+        with patch.dict("os.environ", {"ROLEWEAVER_IDLE_CONSOLIDATION_SECONDS": "42"}, clear=False):
             service = line_bot_app.get_chat_service()
             self.assertEqual(service.idle_consolidation_seconds, 42)
         line_bot_app.get_chat_service.cache_clear()

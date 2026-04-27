@@ -1,0 +1,12 @@
+key,value,notes
+role_name,ミスズ,Display/runtime role name for this LINE bot
+user_subject,用户,How the role should address the human user internally
+base_model_path,C:\Users\kator\Desktop\RoleWeaver\Qwen3.5-4b,Required: local path to the base model directory
+lora_path,C:\Users\kator\Desktop\RoleWeaver\outputs\4B-hmsz\checkpoint-250,Optional: local path to the trained LoRA adapter directory
+skill_file,C:\Users\kator\Desktop\RoleWeaver\skillcreater\characters\Hataya-Misuzu\skill\SKILL.md,Optional: local path to the role SKILL.md file
+skill_text,,Optional: short inline skill text
+quantization_mode,4bit,Model loading mode: 4bit 8bit bf16 fp16 or none
+device_map_mode,gpu,Device placement: gpu rejects CPU offload
+context_window_tokens,0,Optional: 0 means auto-detect
+session_root,C:\Users\kator\Desktop\RoleWeaver\data\line_sessions,LINE bot memory root
+ui_language,zh,Unused by LINE bot; kept for config compatibility

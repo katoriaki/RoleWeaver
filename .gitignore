@@ -11,7 +11,9 @@ __pycache__/
 G/
 qwen35-9b/
 qwen35-9b-4bit/
+Qwen3.5-4b/
 meiling-qwen35-9b-lora/
+outputs/
 *.safetensors
 *.bin
 *.pt
@@ -45,6 +47,9 @@ QQbot/audio_out/
 data/line_sessions/
 data/sessions/
 data/qqbot_audio/
+data/line_audio/
+data/line_contacts.json
+data/line_wakeup_state.json
 data/*.jsonl
 memory/
 training_runs/

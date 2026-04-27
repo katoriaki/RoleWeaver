@@ -761,6 +761,12 @@
             </select>
             <p class="settings-note" data-i18n="deviceMapNote">GPU only is faster and fails loudly if VRAM is insufficient. Auto may offload to CPU and become slow.</p>
           </div>
+
+          <div class="field">
+            <label for="contextWindowTokens" data-i18n="contextWindow">Context window tokens</label>
+            <input id="contextWindowTokens" type="number" min="0" step="1024" autocomplete="off">
+            <p class="settings-note" data-i18n="contextWindowNote">0 means auto-detect. RoleWeaver compresses old context when the prompt approaches this limit.</p>
+          </div>
         </div>
 
         <div class="modal-footer">
@@ -875,6 +881,8 @@
         quantNote: "默认 4bit。服务器显存充足时可选 bf16/none。",
         deviceMap: "设备放置",
         deviceMapNote: "默认 GPU only：显存不够就直接报错，不会悄悄切 CPU。Auto 会允许 CPU offload，但会明显变慢。",
+        contextWindow: "上下文窗口 token",
+        contextWindowNote: "0 表示自动推断。RoleWeaver 会在 prompt 接近该上限时自动压缩旧上下文。",
         reloadConfig: "重新读取",
         saveSettings: "保存设置",
         connecting: "正在连接 RoleWeaver...",
@@ -954,6 +962,8 @@
         quantNote: "既定は 4bit。GPU メモリに余裕があるサーバーでは bf16/none も使えます。",
         deviceMap: "デバイス配置",
         deviceMapNote: "既定は GPU only。不足時は明示的に失敗します。Auto は CPU offload を許可しますが遅くなります。",
+        contextWindow: "コンテキスト長 token",
+        contextWindowNote: "0 は自動推定です。上限に近づくと古い文脈を自動圧縮します。",
         reloadConfig: "再読み込み",
         saveSettings: "保存",
         connecting: "RoleWeaver に接続中...",
@@ -1033,6 +1043,8 @@
         quantNote: "Default is 4bit. Use bf16/none on large GPU servers if you do not need quantization.",
         deviceMap: "Device placement",
         deviceMapNote: "Default is GPU only: fail loudly if VRAM is insufficient. Auto allows CPU offload but can be much slower.",
+        contextWindow: "Context window tokens",
+        contextWindowNote: "0 means auto-detect. RoleWeaver compresses older context when the prompt approaches this limit.",
         reloadConfig: "Reload",
         saveSettings: "Save settings",
         connecting: "Connecting to RoleWeaver...",
@@ -1116,6 +1128,7 @@
     const skillText = document.getElementById("skillText");
     const quantizationMode = document.getElementById("quantizationMode");
     const deviceMapMode = document.getElementById("deviceMapMode");
+    const contextWindowTokens = document.getElementById("contextWindowTokens");
     const trainingModal = document.getElementById("trainingModal");
     const trainModelPath = document.getElementById("trainModelPath");
     const trainDataFile = document.getElementById("trainDataFile");
@@ -1295,6 +1308,7 @@
       skillText.value = config.skill_text || "";
       quantizationMode.value = config.quantization_mode || "4bit";
       deviceMapMode.value = config.device_map_mode || "gpu";
+      contextWindowTokens.value = String(config.context_window_tokens || 0);
       applyLanguage(languageSelect.value);
     }
 
@@ -1695,6 +1709,7 @@
             skill_text: skillText.value.trim(),
             quantization_mode: quantizationMode.value,
             device_map_mode: deviceMapMode.value,
+            context_window_tokens: Number(contextWindowTokens.value || 0),
             ui_language: languageSelect.value,
           }),
         });

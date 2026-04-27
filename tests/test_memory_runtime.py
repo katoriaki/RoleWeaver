@@ -21,7 +21,9 @@ class FakeReranker:
 
 class MemoryRuntimeTestCase(unittest.TestCase):
     def setUp(self):
-        self.temp_dir = tempfile.TemporaryDirectory()
+        tmp_root = Path(__file__).resolve().parents[1] / ".tmp_tests"
+        tmp_root.mkdir(exist_ok=True)
+        self.temp_dir = tempfile.TemporaryDirectory(dir=tmp_root)
         self.addCleanup(self.temp_dir.cleanup)
 
         self.encoder_patcher = patch.object(
@@ -39,6 +41,19 @@ class MemoryRuntimeTestCase(unittest.TestCase):
             profile_file=str(base / "profile.json"),
             state_file=str(base / "state.json"),
             knowledge_file=str(base / "kg.json"),
+            assistant_label="美铃",
+            character_query_keywords=["角色", "美铃", "秦谷美铃"],
+            character_knowledge_seed=[
+                {
+                    "subject": "秦谷美铃",
+                    "relation": "生日",
+                    "object": "2月6日",
+                    "tags": ["core"],
+                    "confidence": 1.0,
+                    "fact_type": "character",
+                    "source": "test_seed",
+                }
+            ],
         )
 
     def test_profile_extraction_and_persistence(self):
@@ -87,6 +102,21 @@ class MemoryRuntimeTestCase(unittest.TestCase):
         summary_memories = [
             item for item in self.runtime.episodic.list_memories(category="episodic")
             if "summary" in item.get("tags", [])
+        ]
+        self.assertGreaterEqual(len(summary_memories), 1)
+
+    def test_context_pressure_compresses_recent_history(self):
+        for i in range(5):
+            self.runtime.record_turn(f"第{i}轮用户输入很长很长", f"第{i}轮助手回复也很长很长")
+
+        result = self.runtime.compress_recent_history(keep_messages=2, reason="test_context_pressure")
+
+        self.assertEqual(result["status"], "compressed")
+        self.assertEqual(len(self.runtime.recent_history(max_messages=None)), 2)
+        self.assertGreaterEqual(result["archived_summary_count"], 1)
+        summary_memories = [
+            item for item in self.runtime.episodic.list_memories(category="episodic")
+            if "context_compression" in item.get("tags", [])
         ]
         self.assertGreaterEqual(len(summary_memories), 1)
 
@@ -199,6 +229,7 @@ class MemoryRuntimeTestCase(unittest.TestCase):
             profile_file=str(Path(self.temp_dir.name) / "judge_profile.json"),
             state_file=str(Path(self.temp_dir.name) / "judge_state.json"),
             knowledge_file=str(Path(self.temp_dir.name) / "judge_kg.json"),
+            assistant_label="美铃",
             memory_write_judge=lambda payload: {
                 "profile_candidates": payload["rule_plan"]["profile_candidates"],
                 "graph_facts": [
@@ -248,6 +279,7 @@ class MemoryRuntimeTestCase(unittest.TestCase):
             profile_file=str(Path(self.temp_dir.name) / "fallback_profile.json"),
             state_file=str(Path(self.temp_dir.name) / "fallback_state.json"),
             knowledge_file=str(Path(self.temp_dir.name) / "fallback_kg.json"),
+            assistant_label="美铃",
             memory_write_judge=lambda payload: (_ for _ in ()).throw(RuntimeError("judge failure")),
         )
 
@@ -270,6 +302,7 @@ class MemoryRuntimeTestCase(unittest.TestCase):
             profile_file=str(Path(self.temp_dir.name) / "threshold_profile.json"),
             state_file=str(Path(self.temp_dir.name) / "threshold_state.json"),
             knowledge_file=str(Path(self.temp_dir.name) / "threshold_kg.json"),
+            assistant_label="美铃",
             memory_write_judge=lambda payload: {
                 "profile_candidates": [
                     {"slot": "nickname", "value": "阿林", "confidence": 0.31, "reason": "too uncertain"}

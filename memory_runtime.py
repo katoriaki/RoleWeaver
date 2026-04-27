@@ -1012,6 +1012,31 @@ class ConversationState:
         self._save_state()
         return archived
 
+    def archive_recent_history(self, keep_messages: int = 2, reason: str = "context_pressure") -> List[Dict]:
+        history = self.state.get("recent_history", [])
+        keep_messages = max(0, int(keep_messages or 0))
+        archive_count = max(0, len(history) - keep_messages)
+        if archive_count <= 0:
+            return []
+
+        archived = []
+        to_archive = history[:archive_count]
+        for start in range(0, len(to_archive), self.archive_chunk):
+            chunk = to_archive[start:start + self.archive_chunk]
+            summary = self._summarize_chunk(chunk)
+            if summary is not None:
+                summary["reason"] = reason
+                self.state["summaries"].append(summary)
+                archived.append(summary)
+
+        if archived:
+            self.state["summaries"] = self.state["summaries"][-self.max_summaries:]
+            for i, item in enumerate(self.state["summaries"], start=1):
+                item["id"] = i
+        self.state["recent_history"] = history[archive_count:]
+        self._save_state()
+        return archived
+
     def search_summaries(self, query: str, top_k: int = 2, min_score: float = 0.12) -> List[Dict]:
         results = []
         for summary in self.state.get("summaries", []):
@@ -1331,6 +1356,24 @@ class MemoryRuntime:
                 category="episodic",
                 source="summary_buffer",
             )
+
+    def compress_recent_history(self, keep_messages: int = 2, reason: str = "context_pressure") -> Dict[str, Any]:
+        archived_summaries = self.state.archive_recent_history(keep_messages=keep_messages, reason=reason)
+        for summary in archived_summaries:
+            self.episodic.add_memory(
+                content=summary["content"],
+                tags=["summary", "episodic", "context_compression"],
+                importance=2,
+                metadata={"summary_id": summary["id"], "reason": reason},
+                category="episodic",
+                source="context_compression",
+            )
+        return {
+            "status": "compressed" if archived_summaries else "skipped",
+            "archived_summary_count": len(archived_summaries),
+            "kept_message_count": len(self.recent_history(max_messages=None)),
+            "reason": reason,
+        }
 
     def consolidate_pending(self) -> Dict[str, Any]:
         pending_turns = self.pending_turns()

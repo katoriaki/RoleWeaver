@@ -2,6 +2,25 @@
 
 ## 2026-04-27
 
+### LINE Bot Voice and Wake-Up Push
+
+- Added a one-click LINE bot launcher under `line/start_line_bot.bat`.
+- Added `line/run_line_bot.py` so the LINE service can be started from the project root without Python import path issues.
+- Added a LINE-specific config file, `line/roleweaver.line.config.csv`, for the current 4B base model, LoRA checkpoint, and Misuzu `SKILL.md`.
+- Added built-in LINE commands:
+  - `/ping`
+  - `/help`
+  - `/status`
+  - `/wake on`
+  - `/wake off`
+- Added persistent LINE contact registration for daily wake-up pushes.
+- Added configurable 07:00 wake-up push support through `ROLEWEAVER_WAKEUP_*` environment variables.
+- Added optional voice-first LINE replies through `ROLEWEAVER_REPLY_VOICE=1`.
+- Added LINE audio file serving under `/audio/{filename}` for generated voice replies.
+- Added local GPT-SoVITS startup helpers under `G/start_roleweaver_tts_api.*`.
+- Added safer TTS reference path handling, including compatibility with accidental `r"C:\..."` dotenv values.
+- Added fallback-to-text behavior when TTS generation, audio conversion, or public audio URL setup fails.
+
 ### Skill Loading and GPU Runtime Stability
 
 - Added single-file `SKILL.md` loading support:
@@ -21,6 +40,19 @@
   - release calls clear model/tokenizer references and run CUDA cache cleanup
 - Updated config examples and UI copy to explain automatic reference loading and GPU-only placement.
 - Ignored local `.tmp_tests/` and the nested `skillcreater/` workspace in the main RoleWeaver repository.
+
+### Automatic Context Compression
+
+- Added pre-generation context budget checks using the active tokenizer.
+- Added automatic compression when prompt tokens approach the model context window:
+  - old `recent_history` messages are summarized into the session summary buffer
+  - compression summaries are also archived into episodic memory with `context_compression` tags
+  - recent raw messages are reduced before generation continues
+- Added `context_window_tokens` configuration:
+  - `0` means auto-detect from model/tokenizer metadata
+  - manual values such as `8192` or `32768` can be set from Settings
+- Added a hard failure path when skill text, memory context, and user input still exceed the model context window after compression.
+- Added regression coverage for context-pressure compression.
 
 ### RoleWeaver Framework Milestone
 

@@ -21,6 +21,7 @@ from role_config import (
     RoleConfig,
     discover_config_file,
     load_config_values,
+    normalize_context_window_tokens,
     normalize_optional_path,
     normalize_device_map_mode,
     normalize_quantization_mode,
@@ -39,6 +40,7 @@ CONFIG_NOTES = {
     "skill_text": "Optional: short inline skill text; useful for small role notes without a file",
     "quantization_mode": "Model loading mode: 4bit, 8bit, bf16, fp16, or none",
     "device_map_mode": "Device placement: gpu rejects CPU offload; auto allows CPU offload when VRAM is insufficient",
+    "context_window_tokens": "Optional: model context window tokens; 0 means auto-detect",
     "ui_language": "Web UI language: zh, ja, or en",
 }
 
@@ -66,6 +68,7 @@ class ConfigResponse(BaseModel):
     skill_text: str = ""
     quantization_mode: str = "4bit"
     device_map_mode: str = "gpu"
+    context_window_tokens: int = 0
     ui_language: str = "zh"
 
 
@@ -106,6 +109,7 @@ class ConfigUpdate(BaseModel):
     skill_text: Optional[str] = None
     quantization_mode: Optional[str] = None
     device_map_mode: Optional[str] = None
+    context_window_tokens: Optional[int] = None
     ui_language: Optional[str] = None
 
 
@@ -159,6 +163,7 @@ def _read_config_response(config_file: Optional[str]) -> ConfigResponse:
         skill_text=values.get("skill_text") or values.get("inline_skill") or "",
         quantization_mode=normalize_quantization_mode(values.get("quantization_mode")),
         device_map_mode=normalize_device_map_mode(values.get("device_map_mode")),
+        context_window_tokens=normalize_context_window_tokens(values.get("context_window_tokens")),
         ui_language=(values.get("ui_language") or "zh").lower(),
     )
 
@@ -172,6 +177,7 @@ def _config_response_from_snapshot(config_file: Optional[str], snapshot: Dict) -
         skill_text=snapshot.get("skill_text") or snapshot.get("inline_skill") or "",
         quantization_mode=normalize_quantization_mode(snapshot.get("quantization_mode")),
         device_map_mode=normalize_device_map_mode(snapshot.get("device_map_mode")),
+        context_window_tokens=normalize_context_window_tokens(snapshot.get("context_window_tokens")),
         ui_language=(snapshot.get("ui_language") or "zh").lower(),
     )
 
@@ -189,6 +195,7 @@ def _write_config(config_file: Optional[str], update: ConfigUpdate) -> ConfigRes
     current["skill_text"] = (current.get("skill_text") or "").strip()
     current["quantization_mode"] = normalize_quantization_mode(current.get("quantization_mode"))
     current["device_map_mode"] = normalize_device_map_mode(current.get("device_map_mode"))
+    current["context_window_tokens"] = normalize_context_window_tokens(current.get("context_window_tokens"))
     if current.get("ui_language") not in {"zh", "ja", "en"}:
         current["ui_language"] = "zh"
 
@@ -205,6 +212,7 @@ def _write_config(config_file: Optional[str], update: ConfigUpdate) -> ConfigRes
                 "skill_text",
                 "quantization_mode",
                 "device_map_mode",
+                "context_window_tokens",
                 "ui_language",
             ]:
                 writer.writerow([key, current.get(key, ""), CONFIG_NOTES.get(key, "")])
@@ -465,6 +473,7 @@ def create_app(config_file: Optional[str] = None) -> FastAPI:
                 skill_text=snapshot.get("skill_text") or "",
                 quantization_mode=snapshot.get("quantization_mode"),
                 device_map_mode=snapshot.get("device_map_mode"),
+                context_window_tokens=snapshot.get("context_window_tokens"),
             )
             service_cache[key] = RoleChatService(config=config)
         return service_cache[key]
@@ -538,6 +547,7 @@ def create_app(config_file: Optional[str] = None) -> FastAPI:
                 "skill_text_present": bool(snapshot.get("skill_text")),
                 "quantization_mode": normalize_quantization_mode(snapshot.get("quantization_mode")),
                 "device_map_mode": normalize_device_map_mode(snapshot.get("device_map_mode")),
+                "context_window_tokens": normalize_context_window_tokens(snapshot.get("context_window_tokens")),
                 "memory_root": str(_session_root_for_config(config_file)),
                 "memory_scope_path": "",
                 "session_settings_persistent": True,
@@ -553,6 +563,7 @@ def create_app(config_file: Optional[str] = None) -> FastAPI:
             "skill_text_present": bool(service.config.skill_text),
             "quantization_mode": service.config.quantization_mode,
             "device_map_mode": service.config.device_map_mode,
+            "context_window_tokens": service.config.context_window_tokens,
             "memory_root": str(service.memory_root),
             "memory_scope_path": str(service.session_root),
         }

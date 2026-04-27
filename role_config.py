@@ -18,6 +18,7 @@ DEFAULT_SESSION_ROOT = str(PROJECT_ROOT / "memory")
 DEFAULT_IDLE_CONSOLIDATION_SECONDS = 600
 DEFAULT_QUANTIZATION_MODE = "4bit"
 DEFAULT_DEVICE_MAP_MODE = "gpu"
+DEFAULT_CONTEXT_WINDOW_TOKENS = 0
 DEFAULT_CONFIG_FILENAMES = (
     "roleweaver.config.csv",
     "roleweaver.config.toml",
@@ -85,6 +86,14 @@ def normalize_idle_consolidation_seconds(
     value,
     default: int = DEFAULT_IDLE_CONSOLIDATION_SECONDS,
 ) -> int:
+    try:
+        normalized = int(value)
+    except (TypeError, ValueError):
+        normalized = int(default)
+    return max(0, normalized)
+
+
+def normalize_context_window_tokens(value, default: int = DEFAULT_CONTEXT_WINDOW_TOKENS) -> int:
     try:
         normalized = int(value)
     except (TypeError, ValueError):
@@ -277,6 +286,7 @@ class RoleConfig:
     session_root: str = DEFAULT_SESSION_ROOT
     quantization_mode: str = DEFAULT_QUANTIZATION_MODE
     device_map_mode: str = DEFAULT_DEVICE_MAP_MODE
+    context_window_tokens: int = DEFAULT_CONTEXT_WINDOW_TOKENS
     system_prompt: str = DEFAULT_ROLE_SYSTEM_PROMPT
     normal_system_prompt: str = NORMAL_SYSTEM_PROMPT
     memory_judge_system_prompt: str = DEFAULT_MEMORY_JUDGE_SYSTEM_PROMPT
@@ -336,6 +346,9 @@ class RoleConfig:
             ),
             device_map_mode=normalize_device_map_mode(
                 pick("device_map_mode", "ROLEWEAVER_DEVICE_MAP_MODE", DEFAULT_DEVICE_MAP_MODE)
+            ),
+            context_window_tokens=normalize_context_window_tokens(
+                pick("context_window_tokens", "ROLEWEAVER_CONTEXT_WINDOW_TOKENS", DEFAULT_CONTEXT_WINDOW_TOKENS)
             ),
             system_prompt=pick("system_prompt", "ROLEWEAVER_SYSTEM_PROMPT", DEFAULT_ROLE_SYSTEM_PROMPT),
             normal_system_prompt=pick("normal_system_prompt", "ROLEWEAVER_NORMAL_SYSTEM_PROMPT", NORMAL_SYSTEM_PROMPT),

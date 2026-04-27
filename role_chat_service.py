@@ -139,6 +139,7 @@ class RoleChatService:
             "skill_text": self.config.skill_text or "",
             "quantization_mode": self.config.quantization_mode,
             "device_map_mode": self.config.device_map_mode,
+            "context_window_tokens": self.config.context_window_tokens,
         }
         if extra_settings:
             snapshot.update({k: v for k, v in extra_settings.items() if v is not None})
@@ -468,7 +469,13 @@ class RoleChatService:
         text = text.replace("<|endoftext|>", "")
         return text.strip()
 
-    def _build_messages(self, user_text: str, role_mode: bool, runtime: MemoryRuntime):
+    def _build_messages(
+        self,
+        user_text: str,
+        role_mode: bool,
+        runtime: MemoryRuntime,
+        max_history_messages: int = 6,
+    ):
         base_system = self.config.build_role_system_prompt() if role_mode else self.config.normal_system_prompt
         memory_context = runtime.build_context(user_text).render()
 
@@ -479,8 +486,107 @@ class RoleChatService:
         messages = []
         if final_system.strip():
             messages.append({"role": "system", "content": final_system.strip()})
-        messages.extend(runtime.recent_history(max_messages=6))
+        if max_history_messages > 0:
+            messages.extend(runtime.recent_history(max_messages=max_history_messages))
         messages.append({"role": "user", "content": user_text})
+        return messages
+
+    def _messages_to_prompt_text(self, messages: List[Dict]) -> str:
+        try:
+            return self._tokenizer.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=True,
+                enable_thinking=False,
+            )
+        except TypeError:
+            return self._tokenizer.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=True,
+            )
+
+    def _count_prompt_tokens(self, messages: List[Dict]) -> int:
+        text = self._messages_to_prompt_text(messages)
+        encoded = self._tokenizer(text, add_special_tokens=False)
+        return len(encoded.get("input_ids", []))
+
+    def _context_window_tokens(self) -> int:
+        configured = int(getattr(self.config, "context_window_tokens", 0) or 0)
+        if configured > 0:
+            return configured
+
+        candidates = []
+        model_config = getattr(self._model, "config", None)
+        for attr in ("max_position_embeddings", "seq_length", "n_positions", "model_max_length"):
+            value = getattr(model_config, attr, None) if model_config is not None else None
+            if isinstance(value, int):
+                candidates.append(value)
+        tokenizer_limit = getattr(self._tokenizer, "model_max_length", None)
+        if isinstance(tokenizer_limit, int):
+            candidates.append(tokenizer_limit)
+
+        sane = [value for value in candidates if 1024 <= value <= 262144]
+        return min(sane) if sane else 8192
+
+    def _prepare_messages_with_context_budget(
+        self,
+        user_text: str,
+        role_mode: bool,
+        runtime: MemoryRuntime,
+        max_new_tokens: int,
+    ) -> List[Dict]:
+        context_limit = self._context_window_tokens()
+        generation_reserve = max(int(max_new_tokens or 0), 1) + 256
+        target_prompt_tokens = int(context_limit * 0.90) - generation_reserve
+        if target_prompt_tokens < 128:
+            target_prompt_tokens = max(64, int(context_limit * 0.60))
+
+        messages = self._build_messages(
+            user_text=user_text,
+            role_mode=role_mode,
+            runtime=runtime,
+            max_history_messages=6,
+        )
+        prompt_tokens = self._count_prompt_tokens(messages)
+        if prompt_tokens <= target_prompt_tokens:
+            return messages
+
+        print(
+            "上下文接近上限，开始自动压缩:",
+            f"prompt_tokens={prompt_tokens}",
+            f"target={target_prompt_tokens}",
+            f"window={context_limit}",
+        )
+        compression_result = runtime.compress_recent_history(
+            keep_messages=2,
+            reason="near_context_limit",
+        )
+        if compression_result.get("status") == "compressed":
+            print(
+                "已压缩旧上下文:",
+                f"summaries={compression_result.get('archived_summary_count', 0)}",
+                f"kept_messages={compression_result.get('kept_message_count', 0)}",
+            )
+
+        for history_messages in (2, 0):
+            messages = self._build_messages(
+                user_text=user_text,
+                role_mode=role_mode,
+                runtime=runtime,
+                max_history_messages=history_messages,
+            )
+            prompt_tokens = self._count_prompt_tokens(messages)
+            if prompt_tokens <= target_prompt_tokens:
+                return messages
+
+        hard_limit = max(512, context_limit - max(int(max_new_tokens or 0), 1) - 32)
+        if prompt_tokens > hard_limit:
+            raise RuntimeError(
+                "当前 prompt 已超过模型上下文窗口，自动压缩历史后仍无法安全生成。\n"
+                f"prompt_tokens={prompt_tokens}, context_window={context_limit}, max_new_tokens={max_new_tokens}\n"
+                "请缩短当前输入、降低 max_new_tokens，或精简 SKILL.md / inline skill。"
+            )
         return messages
 
     def chat_once(self, user_text: str, session_id: str = "default", max_new_tokens: int = 96) -> str:
@@ -502,21 +608,13 @@ class RoleChatService:
         elif self.should_enter_role(user_text):
             role_mode = True
 
-        messages = self._build_messages(user_text=user_text, role_mode=role_mode, runtime=runtime)
-
-        try:
-            text = self._tokenizer.apply_chat_template(
-                messages,
-                tokenize=False,
-                add_generation_prompt=True,
-                enable_thinking=False,
-            )
-        except TypeError:
-            text = self._tokenizer.apply_chat_template(
-                messages,
-                tokenize=False,
-                add_generation_prompt=True,
-            )
+        messages = self._prepare_messages_with_context_budget(
+            user_text=user_text,
+            role_mode=role_mode,
+            runtime=runtime,
+            max_new_tokens=max_new_tokens,
+        )
+        text = self._messages_to_prompt_text(messages)
 
         inputs = self._tokenizer(text, return_tensors="pt").to(self._model.device)
 
