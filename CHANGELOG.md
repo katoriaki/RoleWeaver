@@ -2,6 +2,26 @@
 
 ## 2026-04-27
 
+### Skill Loading and GPU Runtime Stability
+
+- Added single-file `SKILL.md` loading support:
+  - users only need to provide one `SKILL.md` path in Settings
+  - nearby `references/*.md` files are loaded automatically when present
+  - standalone `SKILL.md` files still work without sidecar references
+- Added regression tests for bundled skill loading:
+  - single-file skill loading
+  - `SKILL.md` plus `references/role_reference.md` loading
+- Added `device_map_mode` configuration:
+  - `gpu` is now the default and forces CUDA placement
+  - `auto` remains available for CPU offload fallback
+  - the web Settings panel exposes this as "Device placement"
+- Changed model loading to print the selected placement mode and warn when CPU/disk offload is detected.
+- Fixed a model-switching cache issue where old `RoleChatService` instances could keep model weights on GPU while a new model was loading.
+  - switching settings or loading a session with a different snapshot now releases inactive model weights
+  - release calls clear model/tokenizer references and run CUDA cache cleanup
+- Updated config examples and UI copy to explain automatic reference loading and GPU-only placement.
+- Ignored local `.tmp_tests/` and the nested `skillcreater/` workspace in the main RoleWeaver repository.
+
 ### RoleWeaver Framework Milestone
 
 - Generalized the original role-specific HMSZ workflow into a reusable RoleWeaver runtime:

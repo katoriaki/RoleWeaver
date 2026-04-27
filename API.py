@@ -6,7 +6,6 @@ import shutil
 import subprocess
 import sys
 import time
-from functools import lru_cache
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -23,6 +22,7 @@ from role_config import (
     discover_config_file,
     load_config_values,
     normalize_optional_path,
+    normalize_device_map_mode,
     normalize_quantization_mode,
 )
 
@@ -35,9 +35,10 @@ TRAINING_RUNS_ROOT = PROJECT_ROOT / "training_runs"
 CONFIG_NOTES = {
     "base_model_path": "Required: local path to the base model directory",
     "lora_path": "Optional: local path to the trained LoRA adapter directory; leave blank to use the base model only",
-    "skill_file": "Optional: local path to the role SKILL.md file",
+    "skill_file": "Optional: local path to the role SKILL.md file; nearby references/*.md are loaded automatically",
     "skill_text": "Optional: short inline skill text; useful for small role notes without a file",
     "quantization_mode": "Model loading mode: 4bit, 8bit, bf16, fp16, or none",
+    "device_map_mode": "Device placement: gpu rejects CPU offload; auto allows CPU offload when VRAM is insufficient",
     "ui_language": "Web UI language: zh, ja, or en",
 }
 
@@ -64,6 +65,7 @@ class ConfigResponse(BaseModel):
     skill_file: str = ""
     skill_text: str = ""
     quantization_mode: str = "4bit"
+    device_map_mode: str = "gpu"
     ui_language: str = "zh"
 
 
@@ -103,6 +105,7 @@ class ConfigUpdate(BaseModel):
     skill_file: Optional[str] = None
     skill_text: Optional[str] = None
     quantization_mode: Optional[str] = None
+    device_map_mode: Optional[str] = None
     ui_language: Optional[str] = None
 
 
@@ -155,6 +158,7 @@ def _read_config_response(config_file: Optional[str]) -> ConfigResponse:
         skill_file=values.get("skill_file") or "",
         skill_text=values.get("skill_text") or values.get("inline_skill") or "",
         quantization_mode=normalize_quantization_mode(values.get("quantization_mode")),
+        device_map_mode=normalize_device_map_mode(values.get("device_map_mode")),
         ui_language=(values.get("ui_language") or "zh").lower(),
     )
 
@@ -167,6 +171,7 @@ def _config_response_from_snapshot(config_file: Optional[str], snapshot: Dict) -
         skill_file=snapshot.get("skill_file") or "",
         skill_text=snapshot.get("skill_text") or snapshot.get("inline_skill") or "",
         quantization_mode=normalize_quantization_mode(snapshot.get("quantization_mode")),
+        device_map_mode=normalize_device_map_mode(snapshot.get("device_map_mode")),
         ui_language=(snapshot.get("ui_language") or "zh").lower(),
     )
 
@@ -183,6 +188,7 @@ def _write_config(config_file: Optional[str], update: ConfigUpdate) -> ConfigRes
     current["skill_file"] = normalize_optional_path(current.get("skill_file")) or ""
     current["skill_text"] = (current.get("skill_text") or "").strip()
     current["quantization_mode"] = normalize_quantization_mode(current.get("quantization_mode"))
+    current["device_map_mode"] = normalize_device_map_mode(current.get("device_map_mode"))
     if current.get("ui_language") not in {"zh", "ja", "en"}:
         current["ui_language"] = "zh"
 
@@ -198,6 +204,7 @@ def _write_config(config_file: Optional[str], update: ConfigUpdate) -> ConfigRes
                 "skill_file",
                 "skill_text",
                 "quantization_mode",
+                "device_map_mode",
                 "ui_language",
             ]:
                 writer.writerow([key, current.get(key, ""), CONFIG_NOTES.get(key, "")])
@@ -412,6 +419,8 @@ def create_app(config_file: Optional[str] = None) -> FastAPI:
     app = FastAPI(title="RoleWeaver API")
     session_config_overrides: Dict[str, Dict] = {}
     service_cache: Dict[str, RoleChatService] = {}
+    default_service: Optional[RoleChatService] = None
+    active_service_key: Optional[str] = None
     training_state: Dict = {
         "process": None,
         "run_id": None,
@@ -420,10 +429,30 @@ def create_app(config_file: Optional[str] = None) -> FastAPI:
         "log_path": None,
     }
 
-    @lru_cache(maxsize=1)
     def get_service() -> RoleChatService:
-        config = RoleConfig.from_env(config_file=config_file)
-        return RoleChatService(config=config)
+        nonlocal default_service
+        if default_service is None:
+            config = RoleConfig.from_env(config_file=config_file)
+            default_service = RoleChatService(config=config)
+        return default_service
+
+    def release_inactive_services(active_key: Optional[str] = None):
+        nonlocal default_service
+        if active_key != "default" and default_service is not None:
+            default_service.release_model()
+        for key, service in list(service_cache.items()):
+            if active_key != f"snapshot:{key}":
+                service.release_model()
+
+    def reset_services():
+        nonlocal default_service, active_service_key
+        if default_service is not None:
+            default_service.release_model()
+        for service in service_cache.values():
+            service.release_model()
+        default_service = None
+        active_service_key = None
+        service_cache.clear()
 
     def service_for_snapshot(snapshot: Dict) -> RoleChatService:
         key = json.dumps(snapshot, ensure_ascii=False, sort_keys=True)
@@ -435,6 +464,7 @@ def create_app(config_file: Optional[str] = None) -> FastAPI:
                 skill_file=snapshot.get("skill_file") or "",
                 skill_text=snapshot.get("skill_text") or "",
                 quantization_mode=snapshot.get("quantization_mode"),
+                device_map_mode=snapshot.get("device_map_mode"),
             )
             service_cache[key] = RoleChatService(config=config)
         return service_cache[key]
@@ -451,9 +481,18 @@ def create_app(config_file: Optional[str] = None) -> FastAPI:
         return session_config_overrides[session_id]
 
     def get_service_for_session(session_id: str) -> RoleChatService:
+        nonlocal active_service_key
         snapshot = snapshot_for_session(session_id)
         if snapshot:
+            key = json.dumps(snapshot, ensure_ascii=False, sort_keys=True)
+            target_key = f"snapshot:{key}"
+            if active_service_key != target_key:
+                release_inactive_services(active_key=target_key)
+                active_service_key = target_key
             return service_for_snapshot(snapshot)
+        if active_service_key != "default":
+            release_inactive_services(active_key="default")
+            active_service_key = "default"
         return get_service()
 
     def training_status(message: str = "") -> TrainingStatusResponse:
@@ -498,6 +537,7 @@ def create_app(config_file: Optional[str] = None) -> FastAPI:
                 "skill_file": snapshot.get("skill_file") or "",
                 "skill_text_present": bool(snapshot.get("skill_text")),
                 "quantization_mode": normalize_quantization_mode(snapshot.get("quantization_mode")),
+                "device_map_mode": normalize_device_map_mode(snapshot.get("device_map_mode")),
                 "memory_root": str(_session_root_for_config(config_file)),
                 "memory_scope_path": "",
                 "session_settings_persistent": True,
@@ -512,6 +552,7 @@ def create_app(config_file: Optional[str] = None) -> FastAPI:
             "skill_file": service.config.skill_file,
             "skill_text_present": bool(service.config.skill_text),
             "quantization_mode": service.config.quantization_mode,
+            "device_map_mode": service.config.device_map_mode,
             "memory_root": str(service.memory_root),
             "memory_scope_path": str(service.session_root),
         }
@@ -523,8 +564,7 @@ def create_app(config_file: Optional[str] = None) -> FastAPI:
     @app.post("/config", response_model=ConfigResponse)
     async def update_config(payload: ConfigUpdate):
         response = _write_config(config_file, payload)
-        get_service.cache_clear()
-        service_cache.clear()
+        reset_services()
         return response
 
     @app.post("/training/start", response_model=TrainingStatusResponse)

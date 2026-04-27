@@ -1,7 +1,8 @@
 key,value,notes
 base_model_path,C:\models\base-model,Required: local path to the base model directory
 lora_path,C:\models\your-role-lora,Optional: local path to the trained LoRA adapter directory; leave blank to use the base model only
-skill_file,C:\roles\your-role\SKILL.md,Optional: local path to the role SKILL.md file
+skill_file,C:\roles\your-role\SKILL.md,Optional: local path to the role SKILL.md file; nearby references/*.md are loaded automatically
 skill_text,,Optional: short inline skill text; useful for small role notes without a file
 quantization_mode,4bit,Model loading mode: 4bit, 8bit, bf16, fp16, or none
+device_map_mode,gpu,Device placement: gpu rejects CPU offload; auto allows CPU offload when VRAM is insufficient
 ui_language,zh,Web UI language: zh, ja, or en

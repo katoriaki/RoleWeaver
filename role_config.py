@@ -17,6 +17,7 @@ DEFAULT_LORA_PATH = str(PROJECT_ROOT / "meiling-qwen35-9b-lora")
 DEFAULT_SESSION_ROOT = str(PROJECT_ROOT / "memory")
 DEFAULT_IDLE_CONSOLIDATION_SECONDS = 600
 DEFAULT_QUANTIZATION_MODE = "4bit"
+DEFAULT_DEVICE_MAP_MODE = "gpu"
 DEFAULT_CONFIG_FILENAMES = (
     "roleweaver.config.csv",
     "roleweaver.config.toml",
@@ -91,13 +92,60 @@ def normalize_idle_consolidation_seconds(
     return max(0, normalized)
 
 
-def read_optional_text(path: Optional[str]) -> str:
+def _read_text_file(path: Path) -> str:
+    return path.read_text(encoding="utf-8").strip()
+
+
+def _collect_skill_reference_files(skill_path: Path) -> List[Path]:
+    reference_files: List[Path] = []
+    candidates = [
+        skill_path.parent / "role_reference.md",
+        skill_path.parent / "references" / "role_reference.md",
+    ]
+    for candidate in candidates:
+        if candidate.exists() and candidate.is_file():
+            reference_files.append(candidate)
+
+    references_dir = skill_path.parent / "references"
+    if references_dir.exists() and references_dir.is_dir():
+        for candidate in sorted(references_dir.glob("*.md")):
+            if candidate not in reference_files and candidate.is_file():
+                reference_files.append(candidate)
+    return reference_files
+
+
+def read_skill_bundle(path: Optional[str]) -> str:
+    """Read one SKILL.md path and automatically inline nearby reference markdown."""
     if not path:
         return ""
     candidate = Path(path).expanduser()
     if not candidate.exists():
         raise FileNotFoundError(f"Skill file not found: {candidate}")
-    return candidate.read_text(encoding="utf-8").strip()
+    if not candidate.is_file():
+        raise FileNotFoundError(f"Skill file is not a file: {candidate}")
+
+    pieces = [_read_text_file(candidate)]
+    reference_files = _collect_skill_reference_files(candidate)
+    if reference_files:
+        rendered_refs = []
+        for ref_path in reference_files:
+            try:
+                relative_name = ref_path.relative_to(candidate.parent)
+            except ValueError:
+                relative_name = ref_path.name
+            rendered_refs.append(
+                f"## Reference: {relative_name}\n\n{_read_text_file(ref_path)}"
+            )
+        pieces.append(
+            "以下是与这个 SKILL.md 自动关联加载的 reference 内容。"
+            "这些内容与 Skill 本体具有同等角色设定参考价值：\n\n"
+            + "\n\n".join(rendered_refs)
+        )
+    return "\n\n".join(piece for piece in pieces if piece.strip()).strip()
+
+
+def read_optional_text(path: Optional[str]) -> str:
+    return read_skill_bundle(path)
 
 
 def normalize_optional_path(value: Optional[str]) -> Optional[str]:
@@ -120,6 +168,24 @@ def normalize_quantization_mode(value: Optional[str]) -> str:
     normalized = aliases.get(normalized, normalized)
     if normalized not in {"4bit", "8bit", "bf16", "fp16", "none"}:
         return DEFAULT_QUANTIZATION_MODE
+    return normalized
+
+
+def normalize_device_map_mode(value: Optional[str]) -> str:
+    normalized = (_clean_config_value(value) or DEFAULT_DEVICE_MAP_MODE).lower()
+    aliases = {
+        "cuda": "gpu",
+        "cuda:0": "gpu",
+        "gpu_only": "gpu",
+        "gpu-only": "gpu",
+        "no_offload": "gpu",
+        "no-offload": "gpu",
+        "cpu_offload": "auto",
+        "cpu-offload": "auto",
+    }
+    normalized = aliases.get(normalized, normalized)
+    if normalized not in {"gpu", "auto"}:
+        return DEFAULT_DEVICE_MAP_MODE
     return normalized
 
 
@@ -210,6 +276,7 @@ class RoleConfig:
     lora_path: Optional[str] = DEFAULT_LORA_PATH
     session_root: str = DEFAULT_SESSION_ROOT
     quantization_mode: str = DEFAULT_QUANTIZATION_MODE
+    device_map_mode: str = DEFAULT_DEVICE_MAP_MODE
     system_prompt: str = DEFAULT_ROLE_SYSTEM_PROMPT
     normal_system_prompt: str = NORMAL_SYSTEM_PROMPT
     memory_judge_system_prompt: str = DEFAULT_MEMORY_JUDGE_SYSTEM_PROMPT
@@ -248,7 +315,7 @@ class RoleConfig:
             or pick("inline_skill", "ROLEWEAVER_INLINE_SKILL")
             or ""
         )
-        file_skill = read_optional_text(skill_file) if skill_file else ""
+        file_skill = read_skill_bundle(skill_file) if skill_file else ""
         skill_text = "\n\n".join(piece.strip() for piece in [file_skill, inline_skill] if piece and piece.strip())
 
         base_model_path = pick("base_model_path", "ROLEWEAVER_BASE_MODEL_PATH", DEFAULT_BASE_MODEL_PATH)
@@ -266,6 +333,9 @@ class RoleConfig:
             session_root=pick("session_root", "ROLEWEAVER_SESSION_ROOT", DEFAULT_SESSION_ROOT),
             quantization_mode=normalize_quantization_mode(
                 pick("quantization_mode", "ROLEWEAVER_QUANTIZATION_MODE", DEFAULT_QUANTIZATION_MODE)
+            ),
+            device_map_mode=normalize_device_map_mode(
+                pick("device_map_mode", "ROLEWEAVER_DEVICE_MAP_MODE", DEFAULT_DEVICE_MAP_MODE)
             ),
             system_prompt=pick("system_prompt", "ROLEWEAVER_SYSTEM_PROMPT", DEFAULT_ROLE_SYSTEM_PROMPT),
             normal_system_prompt=pick("normal_system_prompt", "ROLEWEAVER_NORMAL_SYSTEM_PROMPT", NORMAL_SYSTEM_PROMPT),

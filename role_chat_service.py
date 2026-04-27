@@ -1,4 +1,5 @@
 import argparse
+import gc
 import hashlib
 import json
 import os
@@ -93,6 +94,24 @@ class RoleChatService:
             self.config.idle_consolidation_seconds
         )
 
+    def release_model(self):
+        """Release loaded model weights so another config can own the GPU."""
+        with self._init_lock:
+            with self._generate_lock:
+                model = self._model
+                tokenizer = self._tokenizer
+                self._model = None
+                self._tokenizer = None
+                del model
+                del tokenizer
+                gc.collect()
+                if self._torch is not None and getattr(self._torch, "cuda", None):
+                    try:
+                        self._torch.cuda.empty_cache()
+                        self._torch.cuda.ipc_collect()
+                    except Exception:
+                        pass
+
     def _config_memory_dir(self) -> Path:
         identity = {
             "base_model_path": self.config.base_model_path or "",
@@ -119,6 +138,7 @@ class RoleChatService:
             "skill_file": self.config.skill_file or "",
             "skill_text": self.config.skill_text or "",
             "quantization_mode": self.config.quantization_mode,
+            "device_map_mode": self.config.device_map_mode,
         }
         if extra_settings:
             snapshot.update({k: v for k, v in extra_settings.items() if v is not None})
@@ -197,10 +217,15 @@ class RoleChatService:
                 tokenizer.pad_token = tokenizer.eos_token
 
             quantization_mode = (self.config.quantization_mode or "4bit").lower()
-            model_kwargs = {
-                "device_map": "auto",
-                "trust_remote_code": True,
-            }
+            device_map_mode = (self.config.device_map_mode or "gpu").lower()
+            model_kwargs = {"trust_remote_code": True}
+            if device_map_mode == "auto":
+                print("设备放置: auto（允许 CPU offload，可能变慢）")
+                model_kwargs["device_map"] = "auto"
+                model_kwargs["offload_buffers"] = True
+            else:
+                print("设备放置: gpu（强制放入 CUDA:0，不允许静默 CPU offload）")
+                model_kwargs["device_map"] = {"": 0}
             if quantization_mode == "4bit":
                 print("加载 4bit base model...")
                 model_kwargs["quantization_config"] = BitsAndBytesConfig(
@@ -227,6 +252,12 @@ class RoleChatService:
                 self.base_model_path,
                 **model_kwargs,
             )
+            device_map = getattr(base_model, "hf_device_map", None)
+            if device_map:
+                devices = sorted({str(device) for device in device_map.values()})
+                print("模型设备分布:", ", ".join(devices))
+                if any(device in {"cpu", "disk"} for device in devices):
+                    print("警告: 检测到 CPU/disk offload，加载和生成会明显变慢。")
 
             if self.lora_path:
                 try:

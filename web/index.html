@@ -752,6 +752,15 @@
             </select>
             <p class="settings-note" data-i18n="quantNote">Default is 4bit. Use bf16/none on large GPU servers if you do not need quantization.</p>
           </div>
+
+          <div class="field">
+            <label for="deviceMapMode" data-i18n="deviceMap">Device placement</label>
+            <select id="deviceMapMode">
+              <option value="gpu">GPU only</option>
+              <option value="auto">Auto / CPU offload</option>
+            </select>
+            <p class="settings-note" data-i18n="deviceMapNote">GPU only is faster and fails loudly if VRAM is insufficient. Auto may offload to CPU and become slow.</p>
+          </div>
         </div>
 
         <div class="modal-footer">
@@ -859,11 +868,13 @@
         baseModelPath: "底模路径",
         loraPath: "LoRA adapter 路径",
         loraNote: "留空则不加载 LoRA，直接使用底模启动。",
-        skillFile: "Skill 文件路径",
+        skillFile: "Skill.md 文件路径",
         inlineSkill: "内联 skill",
-        inlineSkillPlaceholder: "可选：直接写少量角色设定、语气、边界，不需要单独传文件。",
+        inlineSkillPlaceholder: "可选：直接写少量角色设定、语气、边界。Skill.md 旁边的 references/*.md 会自动加载。",
         quantization: "模型加载方式",
         quantNote: "默认 4bit。服务器显存充足时可选 bf16/none。",
+        deviceMap: "设备放置",
+        deviceMapNote: "默认 GPU only：显存不够就直接报错，不会悄悄切 CPU。Auto 会允许 CPU offload，但会明显变慢。",
         reloadConfig: "重新读取",
         saveSettings: "保存设置",
         connecting: "正在连接 RoleWeaver...",
@@ -936,11 +947,13 @@
         baseModelPath: "ベースモデルのパス",
         loraPath: "LoRA adapter のパス",
         loraNote: "空欄にすると LoRA を読み込まず、ベースモデルだけで起動します。",
-        skillFile: "Skill ファイルのパス",
+        skillFile: "Skill.md ファイルのパス",
         inlineSkill: "インライン skill",
-        inlineSkillPlaceholder: "任意：短いキャラ設定、口調、制約を直接入力できます。",
+        inlineSkillPlaceholder: "任意：短いキャラ設定、口調、制約を直接入力できます。Skill.md 隣の references/*.md は自動読み込みされます。",
         quantization: "モデル読み込み方式",
         quantNote: "既定は 4bit。GPU メモリに余裕があるサーバーでは bf16/none も使えます。",
+        deviceMap: "デバイス配置",
+        deviceMapNote: "既定は GPU only。不足時は明示的に失敗します。Auto は CPU offload を許可しますが遅くなります。",
         reloadConfig: "再読み込み",
         saveSettings: "保存",
         connecting: "RoleWeaver に接続中...",
@@ -1013,11 +1026,13 @@
         baseModelPath: "Base model path",
         loraPath: "LoRA adapter path",
         loraNote: "Leave blank to start from the base model without loading LoRA.",
-        skillFile: "Skill file path",
+        skillFile: "Skill.md file path",
         inlineSkill: "Inline skill",
-        inlineSkillPlaceholder: "Optional small role notes, speaking style, or boundaries.",
+        inlineSkillPlaceholder: "Optional small role notes, speaking style, or boundaries. references/*.md next to Skill.md are loaded automatically.",
         quantization: "Model loading mode",
         quantNote: "Default is 4bit. Use bf16/none on large GPU servers if you do not need quantization.",
+        deviceMap: "Device placement",
+        deviceMapNote: "Default is GPU only: fail loudly if VRAM is insufficient. Auto allows CPU offload but can be much slower.",
         reloadConfig: "Reload",
         saveSettings: "Save settings",
         connecting: "Connecting to RoleWeaver...",
@@ -1100,6 +1115,7 @@
     const skillFile = document.getElementById("skillFile");
     const skillText = document.getElementById("skillText");
     const quantizationMode = document.getElementById("quantizationMode");
+    const deviceMapMode = document.getElementById("deviceMapMode");
     const trainingModal = document.getElementById("trainingModal");
     const trainModelPath = document.getElementById("trainModelPath");
     const trainDataFile = document.getElementById("trainDataFile");
@@ -1278,6 +1294,7 @@
       skillFile.value = config.skill_file || "";
       skillText.value = config.skill_text || "";
       quantizationMode.value = config.quantization_mode || "4bit";
+      deviceMapMode.value = config.device_map_mode || "gpu";
       applyLanguage(languageSelect.value);
     }
 
@@ -1677,6 +1694,7 @@
             skill_file: skillFile.value.trim(),
             skill_text: skillText.value.trim(),
             quantization_mode: quantizationMode.value,
+            device_map_mode: deviceMapMode.value,
             ui_language: languageSelect.value,
           }),
         });
