@@ -1,7 +1,10 @@
 import argparse
+import base64
+import binascii
 import csv
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -22,8 +25,9 @@ from role_config import (
     discover_config_file,
     load_config_values,
     normalize_context_window_tokens,
-    normalize_optional_path,
     normalize_device_map_mode,
+    normalize_model_loader_mode,
+    normalize_optional_path,
     normalize_quantization_mode,
 )
 
@@ -33,6 +37,7 @@ TRAINING_SCRIPT = PROJECT_ROOT / "resources" / "qwen35_lora_training" / "train_q
 TRAINING_EXCEL_CONVERTER = PROJECT_ROOT / "resources" / "qwen35_lora_training" / "convert_excel_to_jsonl.py"
 TRAINING_TEMPLATE = PROJECT_ROOT / "resources" / "qwen35_lora_training" / "role_sft_template.xlsx"
 TRAINING_RUNS_ROOT = PROJECT_ROOT / "training_runs"
+UPLOADS_ROOT = PROJECT_ROOT / "data" / "uploads"
 CONFIG_NOTES = {
     "base_model_path": "Required: local path to the base model directory",
     "lora_path": "Optional: local path to the trained LoRA adapter directory; leave blank to use the base model only",
@@ -40,6 +45,7 @@ CONFIG_NOTES = {
     "skill_text": "Optional: short inline skill text; useful for small role notes without a file",
     "quantization_mode": "Model loading mode: 4bit, 8bit, bf16, fp16, or none",
     "device_map_mode": "Device placement: gpu rejects CPU offload; auto allows CPU offload when VRAM is insufficient",
+    "model_loader_mode": "Model class loader: auto, text, or vision. Use text for LoRA trained with AutoModelForCausalLM.",
     "context_window_tokens": "Optional: model context window tokens; 0 means auto-detect",
     "ui_language": "Web UI language: zh, ja, or en",
 }
@@ -51,9 +57,22 @@ class ChatRequest(BaseModel):
     max_new_tokens: int = 120
 
 
+class ChatImageRequest(ChatRequest):
+    image_base64: str
+    image_name: str = "upload.png"
+
+
 class ChatResponse(BaseModel):
     text: str
     session_id: str
+    persona_score: Optional[dict] = None
+
+
+class PersonaScoreRequest(BaseModel):
+    user_text: str = ""
+    assistant_text: str
+    category: str = ""
+    surface: str = "web"
 
 
 class ConsolidateResponse(BaseModel):
@@ -68,6 +87,7 @@ class ConfigResponse(BaseModel):
     skill_text: str = ""
     quantization_mode: str = "4bit"
     device_map_mode: str = "gpu"
+    model_loader_mode: str = "auto"
     context_window_tokens: int = 0
     ui_language: str = "zh"
 
@@ -102,6 +122,19 @@ class SessionUpdate(BaseModel):
     display_name: Optional[str] = None
 
 
+class MemoryUpdate(BaseModel):
+    content: Optional[str] = None
+    tags: Optional[List[str]] = None
+    importance: Optional[int] = None
+    status: Optional[str] = None
+    confidence: Optional[float] = None
+    valid_until: Optional[str] = None
+    memory_layer: Optional[str] = None
+    reason: Optional[str] = None
+    evidence: Optional[List[str]] = None
+    contradicts: Optional[List[int]] = None
+
+
 class ConfigUpdate(BaseModel):
     base_model_path: Optional[str] = None
     lora_path: Optional[str] = None
@@ -109,6 +142,7 @@ class ConfigUpdate(BaseModel):
     skill_text: Optional[str] = None
     quantization_mode: Optional[str] = None
     device_map_mode: Optional[str] = None
+    model_loader_mode: Optional[str] = None
     context_window_tokens: Optional[int] = None
     ui_language: Optional[str] = None
 
@@ -163,6 +197,7 @@ def _read_config_response(config_file: Optional[str]) -> ConfigResponse:
         skill_text=values.get("skill_text") or values.get("inline_skill") or "",
         quantization_mode=normalize_quantization_mode(values.get("quantization_mode")),
         device_map_mode=normalize_device_map_mode(values.get("device_map_mode")),
+        model_loader_mode=normalize_model_loader_mode(values.get("model_loader_mode")),
         context_window_tokens=normalize_context_window_tokens(values.get("context_window_tokens")),
         ui_language=(values.get("ui_language") or "zh").lower(),
     )
@@ -177,6 +212,7 @@ def _config_response_from_snapshot(config_file: Optional[str], snapshot: Dict) -
         skill_text=snapshot.get("skill_text") or snapshot.get("inline_skill") or "",
         quantization_mode=normalize_quantization_mode(snapshot.get("quantization_mode")),
         device_map_mode=normalize_device_map_mode(snapshot.get("device_map_mode")),
+        model_loader_mode=normalize_model_loader_mode(snapshot.get("model_loader_mode")),
         context_window_tokens=normalize_context_window_tokens(snapshot.get("context_window_tokens")),
         ui_language=(snapshot.get("ui_language") or "zh").lower(),
     )
@@ -195,6 +231,7 @@ def _write_config(config_file: Optional[str], update: ConfigUpdate) -> ConfigRes
     current["skill_text"] = (current.get("skill_text") or "").strip()
     current["quantization_mode"] = normalize_quantization_mode(current.get("quantization_mode"))
     current["device_map_mode"] = normalize_device_map_mode(current.get("device_map_mode"))
+    current["model_loader_mode"] = normalize_model_loader_mode(current.get("model_loader_mode"))
     current["context_window_tokens"] = normalize_context_window_tokens(current.get("context_window_tokens"))
     if current.get("ui_language") not in {"zh", "ja", "en"}:
         current["ui_language"] = "zh"
@@ -212,6 +249,7 @@ def _write_config(config_file: Optional[str], update: ConfigUpdate) -> ConfigRes
                 "skill_text",
                 "quantization_mode",
                 "device_map_mode",
+                "model_loader_mode",
                 "context_window_tokens",
                 "ui_language",
             ]:
@@ -222,6 +260,38 @@ def _write_config(config_file: Optional[str], update: ConfigUpdate) -> ConfigRes
             detail=f"Config file is locked or not writable: {path}",
         ) from exc
     return _read_config_response(str(path))
+
+
+def _safe_upload_filename(name: str) -> str:
+    suffix = Path(name or "upload.png").suffix.lower()
+    if suffix not in {".png", ".jpg", ".jpeg", ".webp", ".bmp"}:
+        suffix = ".png"
+    stem = Path(name or "upload").stem or "upload"
+    stem = re.sub(r"[^a-zA-Z0-9_.\-\u4e00-\u9fffぁ-んァ-ン一-龯]+", "_", stem).strip("._-")
+    return f"{stem[:48] or 'upload'}{suffix}"
+
+
+def _save_chat_image_upload(payload: ChatImageRequest) -> Path:
+    raw = (payload.image_base64 or "").strip()
+    if "," in raw and raw.split(",", 1)[0].lower().startswith("data:image/"):
+        raw = raw.split(",", 1)[1]
+    if not raw:
+        raise HTTPException(status_code=400, detail="image_base64 is required.")
+    try:
+        image_bytes = base64.b64decode(raw, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise HTTPException(status_code=400, detail="Invalid image_base64 payload.") from exc
+    if not image_bytes:
+        raise HTTPException(status_code=400, detail="Uploaded image is empty.")
+    if len(image_bytes) > 12 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Uploaded image is too large. Please keep it under 12 MB.")
+
+    session_id = re.sub(r"[^a-zA-Z0-9_.-]+", "_", (payload.session_id or "api").strip())[:100] or "api"
+    filename = f"{int(time.time() * 1000)}_{_safe_upload_filename(payload.image_name)}"
+    target = UPLOADS_ROOT / session_id / filename
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(image_bytes)
+    return target
 
 
 def _session_root_for_config(config_file: Optional[str]) -> Path:
@@ -471,8 +541,10 @@ def create_app(config_file: Optional[str] = None) -> FastAPI:
                 lora_path=snapshot.get("lora_path") or "",
                 skill_file=snapshot.get("skill_file") or "",
                 skill_text=snapshot.get("skill_text") or "",
+                session_root=snapshot.get("session_root"),
                 quantization_mode=snapshot.get("quantization_mode"),
                 device_map_mode=snapshot.get("device_map_mode"),
+                model_loader_mode=snapshot.get("model_loader_mode"),
                 context_window_tokens=snapshot.get("context_window_tokens"),
             )
             service_cache[key] = RoleChatService(config=config)
@@ -547,6 +619,7 @@ def create_app(config_file: Optional[str] = None) -> FastAPI:
                 "skill_text_present": bool(snapshot.get("skill_text")),
                 "quantization_mode": normalize_quantization_mode(snapshot.get("quantization_mode")),
                 "device_map_mode": normalize_device_map_mode(snapshot.get("device_map_mode")),
+                "model_loader_mode": normalize_model_loader_mode(snapshot.get("model_loader_mode")),
                 "context_window_tokens": normalize_context_window_tokens(snapshot.get("context_window_tokens")),
                 "memory_root": str(_session_root_for_config(config_file)),
                 "memory_scope_path": "",
@@ -563,6 +636,7 @@ def create_app(config_file: Optional[str] = None) -> FastAPI:
             "skill_text_present": bool(service.config.skill_text),
             "quantization_mode": service.config.quantization_mode,
             "device_map_mode": service.config.device_map_mode,
+            "model_loader_mode": service.config.model_loader_mode,
             "context_window_tokens": service.config.context_window_tokens,
             "memory_root": str(service.memory_root),
             "memory_scope_path": str(service.session_root),
@@ -718,12 +792,25 @@ def create_app(config_file: Optional[str] = None) -> FastAPI:
 
     @app.post("/chat", response_model=ChatResponse)
     async def chat(payload: ChatRequest):
-        text = get_service_for_session(payload.session_id).chat_once(
+        service = get_service_for_session(payload.session_id)
+        text = service.chat_once(
             user_text=payload.user_text,
             session_id=payload.session_id,
             max_new_tokens=payload.max_new_tokens,
         )
-        return ChatResponse(text=text, session_id=payload.session_id)
+        return ChatResponse(text=text, session_id=payload.session_id, persona_score=service.last_persona_score)
+
+    @app.post("/chat/image", response_model=ChatResponse)
+    async def chat_image(payload: ChatImageRequest):
+        image_path = _save_chat_image_upload(payload)
+        service = get_service_for_session(payload.session_id)
+        text = service.chat_once_with_image(
+            user_text=payload.user_text,
+            image_path=str(image_path),
+            session_id=payload.session_id,
+            max_new_tokens=payload.max_new_tokens,
+        )
+        return ChatResponse(text=text, session_id=payload.session_id, persona_score=service.last_persona_score)
 
     @app.get("/chat", response_model=ChatResponse)
     async def chat_get(
@@ -731,12 +818,24 @@ def create_app(config_file: Optional[str] = None) -> FastAPI:
         session_id: str = "api",
         max_new_tokens: int = 120,
     ):
-        text = get_service_for_session(session_id).chat_once(
+        service = get_service_for_session(session_id)
+        text = service.chat_once(
             user_text=user_text,
             session_id=session_id,
             max_new_tokens=max_new_tokens,
         )
-        return ChatResponse(text=text, session_id=session_id)
+        return ChatResponse(text=text, session_id=session_id, persona_score=service.last_persona_score)
+
+    @app.post("/persona/score")
+    async def score_persona(payload: PersonaScoreRequest):
+        service = get_service()
+        score = service._score_persona_response(
+            user_text=payload.user_text,
+            assistant_text=payload.assistant_text,
+            category=payload.category,
+            surface=payload.surface,
+        )
+        return {"persona_score": score or {"available": False}}
 
     @app.post("/sessions", response_model=SessionResponse)
     async def create_session():
@@ -781,6 +880,60 @@ def create_app(config_file: Optional[str] = None) -> FastAPI:
     async def consolidate(session_id: str):
         result = get_service_for_session(session_id).consolidate_session_memory(session_id)
         return ConsolidateResponse(result=result)
+
+    @app.get("/sessions/{session_id}/memories")
+    async def list_memories(
+        session_id: str,
+        include_inactive: bool = True,
+        status: Optional[str] = None,
+        query: Optional[str] = None,
+    ):
+        summary = _find_session(config_file, session_id)
+        if summary is None:
+            raise HTTPException(status_code=404, detail=f"Session not found: {session_id}")
+        memories = get_service_for_session(session_id).list_session_memories(
+            session_id,
+            include_inactive=include_inactive,
+            status=status,
+            query=query,
+        )
+        return {"session_id": session_id, "memories": memories}
+
+    @app.get("/sessions/{session_id}/memory-os")
+    async def memory_os_snapshot(session_id: str):
+        summary = _find_session(config_file, session_id)
+        if summary is None:
+            raise HTTPException(status_code=404, detail=f"Session not found: {session_id}")
+        return {
+            "session_id": session_id,
+            "memory_os": get_service_for_session(session_id).session_memory_os_snapshot(session_id),
+        }
+
+    @app.patch("/sessions/{session_id}/memories/{memory_id}")
+    async def update_memory(session_id: str, memory_id: int, payload: MemoryUpdate):
+        summary = _find_session(config_file, session_id)
+        if summary is None:
+            raise HTTPException(status_code=404, detail=f"Session not found: {session_id}")
+        updates = payload.model_dump(exclude_unset=True)
+        if not updates:
+            raise HTTPException(status_code=400, detail="No memory fields to update.")
+        try:
+            memory = get_service_for_session(session_id).update_session_memory(session_id, memory_id, **updates)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        if memory is None:
+            raise HTTPException(status_code=404, detail=f"Memory not found: {memory_id}")
+        return {"session_id": session_id, "memory": memory}
+
+    @app.delete("/sessions/{session_id}/memories/{memory_id}")
+    async def delete_memory(session_id: str, memory_id: int):
+        summary = _find_session(config_file, session_id)
+        if summary is None:
+            raise HTTPException(status_code=404, detail=f"Session not found: {session_id}")
+        deleted = get_service_for_session(session_id).delete_session_memory(session_id, memory_id)
+        if not deleted:
+            raise HTTPException(status_code=404, detail=f"Memory not found: {memory_id}")
+        return {"deleted": True, "session_id": session_id, "memory_id": memory_id}
 
     return app
 

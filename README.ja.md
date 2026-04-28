@@ -13,6 +13,9 @@ RoleWeaver は、ベース LLM、任意の LoRA adapter、任意の role skill �
 - `resources/qwen35_lora_training/role_sft_template.xlsx` を追加しました。列は `user` と `assistant` の 2 列です。
 - 編集可能なチャット表示名を追加しました。内部 `session_id` は UI から隠し、従来通り memory フォルダの対応に使います。
 - 履歴チャットの復元、名前変更、削除、セッション別 Settings snapshot に対応しました。
+- [RoleWeaver Design Principles](docs/DESIGN_PRINCIPLES.md) を追加し、キャラクターの自律性、記憶境界、メディア適応ルール、今後の設計ロードマップを明文化しました。
+- 構造化され、根拠を追跡できるロール定義のために、初版 [Persona Kernel schema](docs/PERSONA_KERNEL_SCHEMA.md) を追加しました。
+- [Memory Item schema](docs/MEMORY_ITEM_SCHEMA.md) と軽量な [persona regression harness](eval/persona_regression/README.md) を追加しました。
 
 完全な更新告知は [CHANGELOG.md](CHANGELOG.md) を参照してください。
 
@@ -24,6 +27,9 @@ RoleWeaver は、ベース LLM、任意の LoRA adapter、任意の role skill �
 - `4bit`、`8bit`、`bf16`、`fp16`、非量子化ロードに対応します。
 - 記憶は `memory/` に保存され、ベースモデル、LoRA、skill、セッションごとに分離されます。
 - FastAPI API、ブラウザ UI、CLI、bot 連携の土台を提供します。
+- 明文化された設計契約に従います。キャラクターの自律性は、ペルソナ一貫性、長期記憶、タスク完了、プラットフォーム形式適応より優先されます。詳しくは [docs/DESIGN_PRINCIPLES.md](docs/DESIGN_PRINCIPLES.md) を参照してください。
+- `SKILL.md` の近くに `persona_kernel.json` がある場合は自動的に読み込みます。通常ユーザーが指定するパスは引き続き `SKILL.md` だけです。
+- キャラクター自律性、メディア適応、記憶境界の退行を確認する初期 persona regression harness を含みます。
 
 ## クイックスタート
 
@@ -43,6 +49,12 @@ Excel、Web Settings パネル、またはテキストエディタで以下を�
 - `ui_language`: `zh`、`ja`、`en`
 
 Windows ランチャー:
+
+```powershell
+setup_runtime.bat
+```
+
+以後、`start_roleweaver.bat` と `line/start_line_bot.bat` は `runtime\Scripts\python.exe` を優先して使います。
 
 ```powershell
 start_roleweaver.bat

@@ -5,5 +5,6 @@ skill_file,C:\roles\your-role\SKILL.md,Optional: local path to the role SKILL.md
 skill_text,,Optional: short inline skill text; useful for small role notes without a file
 quantization_mode,4bit,Model loading mode: 4bit, 8bit, bf16, fp16, or none
 device_map_mode,gpu,Device placement: gpu rejects CPU offload; auto allows CPU offload when VRAM is insufficient
+model_loader_mode,auto,"Model class loader: auto, text, or vision. Use text for LoRA trained with AutoModelForCausalLM."
 context_window_tokens,0,Optional: model context window tokens; 0 means auto-detect
 ui_language,zh,Web UI language: zh, ja, or en

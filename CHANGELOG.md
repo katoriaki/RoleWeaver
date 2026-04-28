@@ -1,5 +1,84 @@
 # Changelog
 
+## 2026-04-28
+
+### Project Runtime Environment
+
+- Added `setup_runtime.bat` to create and refresh a project-local `runtime/` virtual environment.
+- Installed RoleWeaver dependencies into `runtime/`, including CUDA 12.8 PyTorch for local NVIDIA GPUs.
+- Updated `start_roleweaver.bat` and `line/start_line_bot.bat` to prefer `runtime\Scripts\python.exe`.
+- Ignored `runtime/` so the local environment is not committed to Git.
+
+### Memory OS Milestone
+
+- Added session memory management APIs:
+  - `GET /sessions/{session_id}/memories`
+  - `PATCH /sessions/{session_id}/memories/{memory_id}`
+  - `DELETE /sessions/{session_id}/memories/{memory_id}`
+- Added Web UI Memory manager under the More menu.
+- Added memory status transitions: `active`, `stale`, `contradicted`, `archived`, `deleted`.
+- Added memory edit fields for reason, evidence, outgoing contradiction links, and incoming `contradicted_by` visualization.
+- Changed memory retrieval so non-active memories are excluded from search/context recall.
+- Added tests for memory status updates and API memory management.
+- Added M4.3 automatic contradiction detection during deferred memory consolidation:
+  - new correction-like memories can automatically link to older active memories through `contradicts`
+  - older linked memories are marked `contradicted` instead of being deleted
+  - auto-detected links write evidence and reason traces for human review
+  - character canon and skill/reference memories are protected from automatic downgrades
+- Added M4.4 reflective memory maintenance:
+  - memory consolidation can now create higher-level relationship summaries from several durable memories
+  - reflection summaries store source memory ids through `links` and `evidence`
+  - manual contradiction links are reviewed and can downgrade older active targets to `contradicted`
+- Added M4.5 forgetting and validity maintenance:
+  - expired memories become `stale`
+  - old, low-confidence, low-importance episodic details can be archived
+  - weak old preferences can become stale while stable preferences remain active
+  - character canon, skill, and imported-reference memories are protected from automatic forgetting
+- Added M5.1 true-model persona regression:
+  - `eval/persona_regression/run_persona_eval.py` can now run against a live API or load RoleWeaver locally with `--local`
+  - default cases cover identity consistency, boundary consistency, long-dialogue drift, media adaptation, and memory pollution
+  - multi-turn cases are supported for drift testing
+  - JSON reports can be written with `--report`
+  - added `eval/persona_regression/run_local_persona_eval.bat` as a one-click local evaluator
+- Added `model_loader_mode` configuration:
+  - `text` forces `AutoModelForCausalLM`, matching LoRA adapters trained by the bundled SFT script
+  - `vision` forces image-text loading for multimodal use
+  - `auto` keeps the previous processor-detection behavior
+  - the current local RoleWeaver and LINE configs use `text` so the 4B HMSZ LoRA no longer attaches to the VLM wrapper
+- Added M5.2 persona kernel rule scoring:
+  - new `persona_kernel_scorer.py` scores identity, autonomy, generic-assistant flattening, memory-boundary pollution, and media adaptation
+  - chat transcripts store persona score metadata when a `persona_kernel.json` is available
+  - API responses can include `persona_score`, and `POST /persona/score` can score arbitrary replies
+  - persona regression supports `--score-persona-kernel`, `--persona-kernel`, and `--persona-threshold`
+- Added M4.6 Memory OS layering:
+  - new `memory_layer` field: `short_term`, `mid_term`, `long_term`, `graph`, `contradiction_graph`, `reflection_notes`
+  - old memory records are assigned a layer on load; new writes infer layer from type/source/tags
+  - retrieval now separates mid-term summaries, durable long-term memories, reflection notes, graph facts, and contradiction hints
+  - added `GET /sessions/{session_id}/memory-os` for layer/status counts
+
+### Design Principles and Research Roadmap
+
+- Added `docs/DESIGN_PRINCIPLES.md` as the project-level design contract.
+- Added `docs/PERSONA_KERNEL_SCHEMA.md` and `docs/persona_kernel.schema.json` as the first structured persona kernel specification.
+- Added `docs/MEMORY_ITEM_SCHEMA.md` and `docs/memory_item.schema.json` as the target memory metadata contract.
+- Added `eval/persona_regression/` with a lightweight JSONL-based persona regression harness.
+- Backfilled the runtime memory store so newly written memories carry schema, type, scope, evidence, confidence, status, and validity metadata while old memories remain readable.
+- Updated skill loading so `SKILL.md` automatically includes a nearby `persona_kernel.json` or `references/persona_kernel.json` when present.
+- Defined the core priority order:
+  - character autonomy
+  - persona consistency
+  - long-term relationship memory
+  - current task completion
+  - output length, voice, image, and platform formatting
+- Clarified that Web, LINE, TTS, and image prompts are media adaptation layers and must not override the persona kernel.
+- Introduced the next design roadmap:
+  - persona kernel schema
+  - memory metadata with evidence, confidence, source, validity, and status
+  - reflective memory write-manage-read loop
+  - persona regression evaluation
+  - media-safe adaptation tests
+- Linked the design principles from the English, Chinese, and Japanese README files.
+
 ## 2026-04-27
 
 ### LINE Bot Voice and Wake-Up Push

@@ -1,0 +1,144 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/katoriaki/RoleWeaver/docs/memory_item.schema.json",
+  "title": "RoleWeaver Memory Item",
+  "type": "object",
+  "required": [
+    "id",
+    "schema_version",
+    "content",
+    "memory_type",
+    "memory_layer",
+    "scope",
+    "source",
+    "source_kind",
+    "evidence",
+    "confidence",
+    "importance",
+    "status",
+    "valid_from",
+    "tags"
+  ],
+  "properties": {
+    "id": {
+      "type": ["string", "integer"]
+    },
+    "schema_version": {
+      "const": "1.0"
+    },
+    "content": {
+      "type": "string",
+      "minLength": 1
+    },
+    "memory_type": {
+      "enum": [
+        "episodic",
+        "preference",
+        "relationship",
+        "boundary",
+        "character_fact",
+        "task_state",
+        "summary"
+      ]
+    },
+    "memory_layer": {
+      "enum": [
+        "short_term",
+        "mid_term",
+        "long_term",
+        "graph",
+        "contradiction_graph",
+        "reflection_notes"
+      ]
+    },
+    "scope": {
+      "enum": [
+        "user_personalization",
+        "character_canon",
+        "relationship_context",
+        "system_runtime"
+      ]
+    },
+    "source": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source_kind": {
+      "enum": [
+        "chat",
+        "image",
+        "manual",
+        "imported_reference",
+        "skill",
+        "system"
+      ]
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "reason": {
+      "type": "string",
+      "default": ""
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "importance": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 5
+    },
+    "status": {
+      "enum": [
+        "active",
+        "stale",
+        "contradicted",
+        "archived",
+        "deleted"
+      ]
+    },
+    "valid_from": {
+      "type": "string"
+    },
+    "valid_until": {
+      "type": ["string", "null"]
+    },
+    "tags": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "links": {
+      "type": "array",
+      "items": {
+        "type": ["string", "integer"]
+      },
+      "default": []
+    },
+    "contradicts": {
+      "type": "array",
+      "items": {
+        "type": ["string", "integer"]
+      },
+      "default": []
+    },
+    "contradicted_by": {
+      "type": "array",
+      "items": {
+        "type": ["string", "integer"]
+      },
+      "default": []
+    },
+    "metadata": {
+      "type": "object",
+      "default": {}
+    }
+  },
+  "additionalProperties": true
+}

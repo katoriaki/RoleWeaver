@@ -13,6 +13,9 @@ RoleWeaver turns a base LLM, an optional LoRA adapter, and an optional role skil
 - Added `resources/qwen35_lora_training/role_sft_template.xlsx`, a two-column training template with `user` and `assistant` headers.
 - Added editable chat display names. Internal `session_id` values remain hidden and continue to map to the original memory folders.
 - Expanded session history: restore, rename, delete, and per-session settings snapshots.
+- Added [RoleWeaver Design Principles](docs/DESIGN_PRINCIPLES.md), defining persona autonomy, memory boundaries, media adaptation rules, and the next design roadmap.
+- Added the first [Persona Kernel schema](docs/PERSONA_KERNEL_SCHEMA.md) for structured, evidence-aware role definitions.
+- Added [Memory Item schema](docs/MEMORY_ITEM_SCHEMA.md) and a lightweight [persona regression harness](eval/persona_regression/README.md).
 
 See [CHANGELOG.md](CHANGELOG.md) for the full update announcement.
 
@@ -24,6 +27,9 @@ See [CHANGELOG.md](CHANGELOG.md) for the full update announcement.
 - Supports `4bit`, `8bit`, `bf16`, `fp16`, or unquantized model loading.
 - Stores memories under `memory/`, isolated by base model, LoRA, skill, and session.
 - Provides a local FastAPI API, a browser UI, a CLI chat entrypoint, and bot integration scaffolding.
+- Follows a documented design contract: character autonomy comes before persona consistency, memory personalization, task completion, and platform formatting. See [docs/DESIGN_PRINCIPLES.md](docs/DESIGN_PRINCIPLES.md).
+- Automatically loads a nearby `persona_kernel.json` next to `SKILL.md` when present, while keeping `SKILL.md` as the only user-facing skill path.
+- Includes an early persona regression harness for checking autonomy, media adaptation, and memory-boundary regressions.
 
 ## Quick Start
 
@@ -41,6 +47,14 @@ Fill these values in Excel, the web Settings panel, or a text editor:
 - `skill_text` optional short inline skill
 - `quantization_mode` default `4bit`
 - `ui_language` one of `zh`, `ja`, `en`
+
+Create or refresh the project-local runtime:
+
+```powershell
+setup_runtime.bat
+```
+
+After this, `start_roleweaver.bat` and `line/start_line_bot.bat` prefer `runtime\Scripts\python.exe`.
 
 Run the Windows launcher:
 

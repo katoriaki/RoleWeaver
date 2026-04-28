@@ -1,8 +1,14 @@
 import unittest
-from unittest.mock import patch
+import sys
+from datetime import datetime
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+from zoneinfo import ZoneInfo
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from fastapi.testclient import TestClient
-from linebot.v3.webhooks import GroupSource, UserSource
+from linebot.v3.webhooks import GroupSource, ImageMessageContent, MessageEvent, UserSource
 
 from line import app as line_bot_app
 from role_config import (
@@ -35,6 +41,23 @@ class LineBotAppTestCase(unittest.TestCase):
         self.assertIn("RoleWeaver LINE Bot is online", line_bot_app.handle_builtin_command("/help"))
         self.assertIsNone(line_bot_app.handle_builtin_command("hello"))
 
+    def test_voice_reply_policy_respects_daytime_text_window(self):
+        env = {
+            "ROLEWEAVER_REPLY_VOICE": "1",
+            "ROLEWEAVER_VOICE_TEXT_ONLY_WINDOW_ENABLED": "1",
+            "ROLEWEAVER_VOICE_TEXT_ONLY_START": "08:00",
+            "ROLEWEAVER_VOICE_TEXT_ONLY_END": "17:30",
+            "ROLEWEAVER_VOICE_TEXT_ONLY_TIMEZONE": "Asia/Tokyo",
+        }
+        morning = datetime(2026, 4, 28, 9, 0, tzinfo=ZoneInfo("Asia/Tokyo"))
+        evening = datetime(2026, 4, 28, 18, 0, tzinfo=ZoneInfo("Asia/Tokyo"))
+
+        with patch.dict("os.environ", env, clear=False):
+            self.assertFalse(line_bot_app.should_use_voice_reply("おはよう", now=morning))
+            self.assertTrue(line_bot_app.should_use_voice_reply("この返事を音声でお願いします", now=morning))
+            self.assertTrue(line_bot_app.should_use_voice_reply("hello", now=evening))
+            self.assertFalse(line_bot_app.should_use_voice_reply("no voice, text only", now=evening))
+
     def test_health_and_missing_signature(self):
         client = TestClient(line_bot_app.app)
 
@@ -45,6 +68,52 @@ class LineBotAppTestCase(unittest.TestCase):
         callback = client.post("/callback", content="{}")
         self.assertEqual(callback.status_code, 400)
         self.assertIn("Missing X-Line-Signature", callback.text)
+
+    def test_callback_routes_image_messages_to_vision_chat(self):
+        client = TestClient(line_bot_app.app)
+        event = MessageEvent(
+            source=UserSource(userId="u123"),
+            timestamp=0,
+            mode="active",
+            webhookEventId="webhook-1",
+            deliveryContext={"isRedelivery": False},
+            replyToken="reply-token",
+            message=ImageMessageContent(
+                id="message-image-1",
+                contentProvider={"type": "line"},
+                quoteToken="quote-token",
+            ),
+        )
+        parser = MagicMock()
+        parser.parse.return_value = [event]
+        service = MagicMock()
+        service.chat_once_with_image.return_value = "image reply"
+
+        with patch.object(line_bot_app, "get_line_parser", return_value=parser), \
+            patch.object(line_bot_app, "remember_contact"), \
+            patch.object(line_bot_app, "download_line_image", return_value=Path("image.jpg")) as download_image, \
+            patch.object(line_bot_app, "get_chat_service", return_value=service), \
+            patch.object(line_bot_app, "send_chat_reply") as send_chat_reply:
+            response = client.post("/callback", content="{}", headers={"X-Line-Signature": "sig"})
+
+        self.assertEqual(response.status_code, 200)
+        download_image.assert_called_once_with("message-image-1", "line_user_u123")
+        service.chat_once_with_image.assert_called_once()
+        kwargs = service.chat_once_with_image.call_args.kwargs
+        self.assertEqual(kwargs["image_path"], "image.jpg")
+        self.assertEqual(kwargs["session_id"], "line_user_u123")
+        self.assertEqual(kwargs["max_new_tokens"], 192)
+        send_chat_reply.assert_called_once_with("reply-token", "image reply", "line_user_u123", kwargs["user_text"])
+
+    def test_line_max_new_tokens_is_configurable_and_clamped(self):
+        with patch.dict("os.environ", {"ROLEWEAVER_LINE_MAX_NEW_TOKENS": "384"}, clear=False):
+            self.assertEqual(line_bot_app.line_max_new_tokens(), 384)
+        with patch.dict("os.environ", {"ROLEWEAVER_LINE_MAX_NEW_TOKENS": "99999"}, clear=False):
+            self.assertEqual(line_bot_app.line_max_new_tokens(), 4096)
+        with patch.dict("os.environ", {"ROLEWEAVER_LINE_MAX_NEW_TOKENS": "1"}, clear=False):
+            self.assertEqual(line_bot_app.line_max_new_tokens(), 16)
+        with patch.dict("os.environ", {"ROLEWEAVER_LINE_MAX_NEW_TOKENS": "bad"}, clear=False):
+            self.assertEqual(line_bot_app.line_max_new_tokens(), 192)
 
     def test_idle_consolidation_seconds_is_configurable(self):
         self.assertEqual(normalize_idle_consolidation_seconds("0"), 0)

@@ -397,9 +397,26 @@
       border-radius: 8px;
       box-shadow: var(--shadow);
       display: grid;
-      grid-template-columns: 1fr auto;
+      grid-template-columns: auto 1fr auto;
       gap: 10px;
       padding: 10px;
+    }
+
+    .attach-button {
+      align-self: end;
+      width: 42px;
+      height: 42px;
+      display: grid;
+      place-items: center;
+      border: 1px solid var(--line);
+      background: #f8fafc;
+      color: var(--text);
+      font-weight: 700;
+    }
+
+    .attach-button:hover {
+      border-color: var(--accent);
+      color: var(--accent);
     }
 
     .composer textarea {
@@ -423,6 +440,36 @@
     .send-button:hover,
     .primary-button:hover {
       background: var(--accent-dark);
+    }
+
+    .image-preview {
+      max-width: 960px;
+      margin: 8px auto 0;
+      display: none;
+      align-items: center;
+      gap: 10px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .image-preview.show {
+      display: flex;
+    }
+
+    .image-preview img {
+      width: 44px;
+      height: 44px;
+      object-fit: cover;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      background: #fff;
+    }
+
+    .image-preview button {
+      width: 30px;
+      height: 30px;
+      background: #e5e7eb;
+      color: var(--text);
     }
 
     button:disabled {
@@ -552,6 +599,119 @@
       background: #ffffff;
     }
 
+    .memory-toolbar {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 10px;
+      align-items: end;
+      margin-bottom: 12px;
+    }
+
+    .memory-list {
+      display: grid;
+      gap: 10px;
+      max-height: min(58vh, 620px);
+      overflow: auto;
+      padding-right: 4px;
+    }
+
+    .memory-card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      padding: 12px;
+      display: grid;
+      gap: 9px;
+    }
+
+    .memory-card.inactive {
+      background: #f8fafc;
+      opacity: 0.78;
+    }
+
+    .memory-card-header {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: center;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .memory-content {
+      white-space: pre-wrap;
+      line-height: 1.55;
+      color: var(--text);
+      font-size: 14px;
+    }
+
+    .memory-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .memory-chip {
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 3px 8px;
+      background: #f8fafc;
+    }
+
+    .memory-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .memory-action {
+      background: var(--panel-soft);
+      color: var(--text);
+      padding: 7px 10px;
+      font-size: 12px;
+    }
+
+    .memory-action.danger {
+      color: #991b1b;
+      background: #fee2e2;
+    }
+
+    .memory-edit-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 8px;
+    }
+
+    .memory-edit-grid label {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .memory-edit-grid input,
+    .memory-edit-grid textarea {
+      background: #f8fafc;
+      color: var(--text);
+      border-color: var(--line);
+    }
+
+    .memory-edit-grid textarea {
+      min-height: 70px;
+    }
+
+    .memory-edit-grid .wide {
+      grid-column: 1 / -1;
+    }
+
+    .memory-chain {
+      display: grid;
+      gap: 4px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
     .inline-link {
       color: var(--accent-dark);
       font-weight: 650;
@@ -658,6 +818,7 @@
             <button class="menu-item" id="settingsButton" type="button" data-i18n="settings">Settings</button>
             <button class="menu-item" id="trainingButton" type="button" data-i18n="training">Training</button>
             <button class="menu-item" id="consolidateButton" type="button" data-i18n="consolidate">Consolidate memory</button>
+            <button class="menu-item" id="memoryButton" type="button" data-i18n="memoryManager">Memory manager</button>
             <button class="menu-item" id="healthButton" type="button" data-i18n="checkRuntime">Check runtime</button>
             <button class="menu-item" id="exitButton" type="button" data-i18n="exit">Exit</button>
           </div>
@@ -694,9 +855,16 @@
 
       <section class="composer-wrap">
         <form class="composer" id="chatForm">
+          <input id="imageInput" type="file" accept="image/png,image/jpeg,image/webp,image/bmp" hidden>
+          <button class="attach-button" id="attachImageButton" type="button" data-i18n-title="attachImage" aria-label="Attach image">+</button>
           <textarea id="promptInput" rows="1" data-i18n-placeholder="promptPlaceholder" placeholder="Send a message. Enter sends, Shift+Enter starts a new line."></textarea>
           <button class="send-button" id="sendButton" type="submit" data-i18n="send">Send</button>
         </form>
+        <div class="image-preview" id="imagePreview">
+          <img id="imagePreviewThumb" alt="">
+          <span id="imagePreviewName"></span>
+          <button id="removeImageButton" type="button" data-i18n-title="removeImage" aria-label="Remove image">×</button>
+        </div>
         <div class="hint" data-i18n="hint">The browser only caches the visible chat locally.</div>
       </section>
     </main>
@@ -760,6 +928,16 @@
               <option value="auto">Auto / CPU offload</option>
             </select>
             <p class="settings-note" data-i18n="deviceMapNote">GPU only is faster and fails loudly if VRAM is insufficient. Auto may offload to CPU and become slow.</p>
+          </div>
+
+          <div class="field">
+            <label for="modelLoaderMode" data-i18n="modelLoader">Model loader</label>
+            <select id="modelLoaderMode">
+              <option value="auto">Auto</option>
+              <option value="text">Text / Causal LM</option>
+              <option value="vision">Vision / Image-text</option>
+            </select>
+            <p class="settings-note" data-i18n="modelLoaderNote">Use Text for LoRA adapters trained with AutoModelForCausalLM. Use Vision for image chat.</p>
           </div>
 
           <div class="field">
@@ -845,6 +1023,32 @@
     </div>
   </div>
 
+  <div class="modal-backdrop" id="memoryModal">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="memoryTitle">
+      <div class="modal-header">
+        <h2 class="modal-title" id="memoryTitle" data-i18n="memoryManager">Memory manager</h2>
+        <button class="secondary-button" id="closeMemoryButton" type="button" data-i18n="close">Close</button>
+      </div>
+
+      <div class="memory-toolbar">
+        <div class="field">
+          <label for="memoryStatusFilter" data-i18n="memoryStatusFilter">Status filter</label>
+          <select id="memoryStatusFilter">
+            <option value="" data-i18n="allMemories">All memories</option>
+            <option value="active">active</option>
+            <option value="stale">stale</option>
+            <option value="contradicted">contradicted</option>
+            <option value="archived">archived</option>
+            <option value="deleted">deleted</option>
+          </select>
+        </div>
+        <button class="secondary-button" id="refreshMemoryButton" type="button" data-i18n="refresh">Refresh</button>
+      </div>
+
+      <div class="memory-list" id="memoryList"></div>
+    </div>
+  </div>
+
   <div class="toast" id="toast"></div>
 
   <script>
@@ -869,6 +1073,10 @@
         promptPlaceholder: "给角色发送消息，Enter 发送，Shift+Enter 换行",
         hint: "前端不会保存到服务器；浏览器本地只缓存当前页面消息。",
         send: "发送",
+        attachImage: "上传图片",
+        removeImage: "移除图片",
+        imageAttached: "已选择图片",
+        imageTooLarge: "图片太大，请选择 12 MB 以内的图片。",
         close: "关闭",
         language: "界面语言",
         baseModelPath: "底模路径",
@@ -881,6 +1089,8 @@
         quantNote: "默认 4bit。服务器显存充足时可选 bf16/none。",
         deviceMap: "设备放置",
         deviceMapNote: "默认 GPU only：显存不够就直接报错，不会悄悄切 CPU。Auto 会允许 CPU offload，但会明显变慢。",
+        modelLoader: "模型加载器",
+        modelLoaderNote: "LoRA 如果是 AutoModelForCausalLM 训练的，选 Text。需要看图时选 Vision。",
         contextWindow: "上下文窗口 token",
         contextWindowNote: "0 表示自动推断。RoleWeaver 会在 prompt 接近该上限时自动压缩旧上下文。",
         reloadConfig: "重新读取",
@@ -950,6 +1160,10 @@
         promptPlaceholder: "メッセージを入力。Enterで送信、Shift+Enterで改行。",
         hint: "表示中の会話だけをブラウザに一時保存します。",
         send: "送信",
+        attachImage: "画像を添付",
+        removeImage: "画像を外す",
+        imageAttached: "画像を選択しました",
+        imageTooLarge: "画像が大きすぎます。12 MB 以下にしてください。",
         close: "閉じる",
         language: "表示言語",
         baseModelPath: "ベースモデルのパス",
@@ -962,6 +1176,8 @@
         quantNote: "既定は 4bit。GPU メモリに余裕があるサーバーでは bf16/none も使えます。",
         deviceMap: "デバイス配置",
         deviceMapNote: "既定は GPU only。不足時は明示的に失敗します。Auto は CPU offload を許可しますが遅くなります。",
+        modelLoader: "モデルローダー",
+        modelLoaderNote: "AutoModelForCausalLM で学習した LoRA には Text を使います。画像チャットには Vision を使います。",
         contextWindow: "コンテキスト長 token",
         contextWindowNote: "0 は自動推定です。上限に近づくと古い文脈を自動圧縮します。",
         reloadConfig: "再読み込み",
@@ -1020,6 +1236,7 @@
         settings: "Settings",
         training: "Training",
         consolidate: "Consolidate memory",
+        memoryManager: "Memory manager",
         checkRuntime: "Check runtime",
         exit: "Exit",
         history: "History",
@@ -1031,6 +1248,10 @@
         promptPlaceholder: "Send a message. Enter sends, Shift+Enter starts a new line.",
         hint: "The browser only caches the visible chat locally.",
         send: "Send",
+        attachImage: "Attach image",
+        removeImage: "Remove image",
+        imageAttached: "Image attached",
+        imageTooLarge: "Image is too large. Please keep it under 12 MB.",
         close: "Close",
         language: "Language",
         baseModelPath: "Base model path",
@@ -1043,6 +1264,8 @@
         quantNote: "Default is 4bit. Use bf16/none on large GPU servers if you do not need quantization.",
         deviceMap: "Device placement",
         deviceMapNote: "Default is GPU only: fail loudly if VRAM is insufficient. Auto allows CPU offload but can be much slower.",
+        modelLoader: "Model loader",
+        modelLoaderNote: "Use Text for LoRA adapters trained with AutoModelForCausalLM. Use Vision for image chat.",
         contextWindow: "Context window tokens",
         contextWindowNote: "0 means auto-detect. RoleWeaver compresses older context when the prompt approaches this limit.",
         reloadConfig: "Reload",
@@ -1055,6 +1278,26 @@
         requestFailedToast: "Request failed. Check terminal logs and model configuration.",
         memoryDone: "Memory consolidation complete.",
         memoryFailed: "Memory consolidation failed",
+        memoryEmpty: "No long-term memories in this session yet.",
+        memoryLoaded: "Memory list refreshed.",
+        memoryUpdated: "Memory updated.",
+        memoryDeleted: "Memory deleted.",
+        memoryUpdateFailed: "Failed to update memory",
+        memoryDeleteConfirm: "Delete this memory record?",
+        memoryStatusFilter: "Status filter",
+        allMemories: "All memories",
+        memoryReason: "Reason",
+        memoryEvidence: "Evidence",
+        memoryContradicts: "Contradicts",
+        memoryContradictedBy: "Contradicted by",
+        memoryNoEvidence: "No evidence recorded",
+        memoryNoReason: "No reason recorded",
+        saveMemory: "Save memory",
+        markActive: "Active",
+        markStale: "Stale",
+        markContradicted: "Contradicted",
+        archiveMemory: "Archive",
+        deleteMemory: "Delete",
         saved: "Settings saved. The next chat will load with the new configuration.",
         exitDone: "Memory consolidation has started before exit.",
         closeHint: "You can close this page now.",
@@ -1102,11 +1345,18 @@
       closingConsolidated: false,
       sessions: [],
       trainingTimer: null,
+      selectedImage: null,
     };
 
     const messagesEl = document.getElementById("messages");
     const emptyState = document.getElementById("emptyState");
     const promptInput = document.getElementById("promptInput");
+    const imageInput = document.getElementById("imageInput");
+    const attachImageButton = document.getElementById("attachImageButton");
+    const imagePreview = document.getElementById("imagePreview");
+    const imagePreviewThumb = document.getElementById("imagePreviewThumb");
+    const imagePreviewName = document.getElementById("imagePreviewName");
+    const removeImageButton = document.getElementById("removeImageButton");
     const sendButton = document.getElementById("sendButton");
     const sessionInput = document.getElementById("sessionId");
     const chatNameInput = document.getElementById("chatName");
@@ -1128,6 +1378,7 @@
     const skillText = document.getElementById("skillText");
     const quantizationMode = document.getElementById("quantizationMode");
     const deviceMapMode = document.getElementById("deviceMapMode");
+    const modelLoaderMode = document.getElementById("modelLoaderMode");
     const contextWindowTokens = document.getElementById("contextWindowTokens");
     const trainingModal = document.getElementById("trainingModal");
     const trainModelPath = document.getElementById("trainModelPath");
@@ -1142,6 +1393,9 @@
     const trainingLog = document.getElementById("trainingLog");
     const startTrainingButton = document.getElementById("startTrainingButton");
     const stopTrainingButton = document.getElementById("stopTrainingButton");
+    const memoryModal = document.getElementById("memoryModal");
+    const memoryList = document.getElementById("memoryList");
+    const memoryStatusFilter = document.getElementById("memoryStatusFilter");
 
     function t(key) {
       return (i18n[state.language] && i18n[state.language][key]) || i18n.en[key] || key;
@@ -1158,6 +1412,11 @@
       });
       document.querySelectorAll("[data-i18n-placeholder]").forEach((el) => {
         el.placeholder = t(el.dataset.i18nPlaceholder);
+      });
+      document.querySelectorAll("[data-i18n-title]").forEach((el) => {
+        const title = t(el.dataset.i18nTitle);
+        el.title = title;
+        el.setAttribute("aria-label", title);
       });
       sendButton.textContent = state.busy ? "..." : t("send");
       if (healthPill.textContent === "online" || healthPill.textContent === i18n.en.online) {
@@ -1191,6 +1450,40 @@
       toast.classList.add("show");
       window.clearTimeout(showToast.timer);
       showToast.timer = window.setTimeout(() => toast.classList.remove("show"), 3400);
+    }
+
+    function clearSelectedImage() {
+      state.selectedImage = null;
+      imageInput.value = "";
+      imagePreview.classList.remove("show");
+      imagePreviewThumb.removeAttribute("src");
+      imagePreviewName.textContent = "";
+    }
+
+    function setSelectedImage(file, dataUrl) {
+      state.selectedImage = {
+        name: file.name || "upload.png",
+        dataUrl,
+      };
+      imagePreviewThumb.src = dataUrl;
+      imagePreviewName.textContent = `${t("imageAttached")}: ${state.selectedImage.name}`;
+      imagePreview.classList.add("show");
+    }
+
+    function readSelectedImage(file) {
+      if (!file) {
+        clearSelectedImage();
+        return;
+      }
+      if (file.size > 12 * 1024 * 1024) {
+        clearSelectedImage();
+        showToast(t("imageTooLarge"));
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = () => setSelectedImage(file, String(reader.result || ""));
+      reader.onerror = () => showToast(t("requestFailed"));
+      reader.readAsDataURL(file);
     }
 
     function formatSessionTime(session) {
@@ -1292,10 +1585,180 @@
       }
     }
 
+    function renderMemoryList(memories) {
+      memoryList.innerHTML = "";
+      if (!memories || memories.length === 0) {
+        const empty = document.createElement("div");
+        empty.className = "settings-note";
+        empty.textContent = t("memoryEmpty");
+        memoryList.appendChild(empty);
+        return;
+      }
+
+      for (const memory of memories) {
+        const card = document.createElement("article");
+        const status = memory.status || "active";
+        card.className = "memory-card" + (status === "active" ? "" : " inactive");
+
+        const header = document.createElement("div");
+        header.className = "memory-card-header";
+        header.textContent = `#${memory.id} · ${status}`;
+
+        const confidence = document.createElement("span");
+        const confidenceValue = typeof memory.confidence === "number" ? memory.confidence.toFixed(2) : "-";
+        confidence.textContent = `${memory.memory_type || memory.category || "memory"} · ${confidenceValue}`;
+        header.appendChild(confidence);
+
+        const content = document.createElement("div");
+        content.className = "memory-content";
+        content.textContent = memory.content || "";
+
+        const meta = document.createElement("div");
+        meta.className = "memory-meta";
+        for (const label of [
+          memory.scope,
+          memory.source_kind,
+          memory.category,
+          ...(Array.isArray(memory.tags) ? memory.tags.slice(0, 5) : []),
+        ].filter(Boolean)) {
+          const chip = document.createElement("span");
+          chip.className = "memory-chip";
+          chip.textContent = label;
+          meta.appendChild(chip);
+        }
+
+        const chain = document.createElement("div");
+        chain.className = "memory-chain";
+        const evidence = Array.isArray(memory.evidence) ? memory.evidence : [];
+        const contradicts = Array.isArray(memory.contradicts) ? memory.contradicts : [];
+        const contradictedBy = Array.isArray(memory.contradicted_by) ? memory.contradicted_by : [];
+        chain.textContent = "";
+        const reasonLine = document.createElement("div");
+        reasonLine.textContent = `${t("memoryReason")}: ${memory.reason || t("memoryNoReason")}`;
+        const evidenceLine = document.createElement("div");
+        evidenceLine.textContent = `${t("memoryEvidence")}: ${evidence.length ? evidence.join("; ") : t("memoryNoEvidence")}`;
+        const contradictsLine = document.createElement("div");
+        contradictsLine.textContent = `${t("memoryContradicts")}: ${contradicts.length ? contradicts.map((id) => `#${id}`).join(", ") : "-"}`;
+        const contradictedByLine = document.createElement("div");
+        contradictedByLine.textContent = `${t("memoryContradictedBy")}: ${contradictedBy.length ? contradictedBy.map((id) => `#${id}`).join(", ") : "-"}`;
+        chain.appendChild(reasonLine);
+        chain.appendChild(evidenceLine);
+        chain.appendChild(contradictsLine);
+        chain.appendChild(contradictedByLine);
+
+        const editGrid = document.createElement("div");
+        editGrid.className = "memory-edit-grid";
+        const reasonField = document.createElement("div");
+        reasonField.className = "field wide";
+        const reasonLabel = document.createElement("label");
+        reasonLabel.textContent = t("memoryReason");
+        const reasonInput = document.createElement("textarea");
+        reasonInput.value = memory.reason || "";
+        reasonField.appendChild(reasonLabel);
+        reasonField.appendChild(reasonInput);
+
+        const evidenceField = document.createElement("div");
+        evidenceField.className = "field wide";
+        const evidenceLabel = document.createElement("label");
+        evidenceLabel.textContent = t("memoryEvidence");
+        const evidenceInput = document.createElement("textarea");
+        evidenceInput.value = evidence.join("; ");
+        evidenceField.appendChild(evidenceLabel);
+        evidenceField.appendChild(evidenceInput);
+
+        const contradictsField = document.createElement("div");
+        contradictsField.className = "field";
+        const contradictsLabel = document.createElement("label");
+        contradictsLabel.textContent = t("memoryContradicts");
+        const contradictsInput = document.createElement("input");
+        contradictsInput.value = contradicts.join(", ");
+        contradictsField.appendChild(contradictsLabel);
+        contradictsField.appendChild(contradictsInput);
+
+        const confidenceField = document.createElement("div");
+        confidenceField.className = "field";
+        const confidenceLabel = document.createElement("label");
+        confidenceLabel.textContent = "confidence";
+        const confidenceInput = document.createElement("input");
+        confidenceInput.type = "number";
+        confidenceInput.min = "0";
+        confidenceInput.max = "1";
+        confidenceInput.step = "0.01";
+        confidenceInput.value = typeof memory.confidence === "number" ? String(memory.confidence) : "0.65";
+        confidenceField.appendChild(confidenceLabel);
+        confidenceField.appendChild(confidenceInput);
+
+        editGrid.appendChild(reasonField);
+        editGrid.appendChild(evidenceField);
+        editGrid.appendChild(contradictsField);
+        editGrid.appendChild(confidenceField);
+
+        const actions = document.createElement("div");
+        actions.className = "memory-actions";
+        const actionDefs = [
+          ["active", t("markActive")],
+          ["stale", t("markStale")],
+          ["contradicted", t("markContradicted")],
+          ["archived", t("archiveMemory")],
+        ];
+        for (const [nextStatus, label] of actionDefs) {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "memory-action";
+          button.textContent = label;
+          button.disabled = status === nextStatus;
+          button.addEventListener("click", () => updateMemoryStatus(memory.id, nextStatus));
+          actions.appendChild(button);
+        }
+        const saveButton = document.createElement("button");
+        saveButton.type = "button";
+        saveButton.className = "memory-action";
+        saveButton.textContent = t("saveMemory");
+        saveButton.addEventListener("click", () => updateMemoryDetails(memory.id, {
+          reason: reasonInput.value,
+          evidence: parseEvidenceInput(evidenceInput.value),
+          contradicts: parseMemoryRefs(contradictsInput.value),
+          confidence: Number(confidenceInput.value || 0.65),
+        }));
+        actions.appendChild(saveButton);
+
+        const deleteButton = document.createElement("button");
+        deleteButton.type = "button";
+        deleteButton.className = "memory-action danger";
+        deleteButton.textContent = t("deleteMemory");
+        deleteButton.addEventListener("click", () => deleteMemoryRecord(memory.id));
+        actions.appendChild(deleteButton);
+
+        card.appendChild(header);
+        card.appendChild(content);
+        card.appendChild(meta);
+        card.appendChild(chain);
+        card.appendChild(editGrid);
+        card.appendChild(actions);
+        memoryList.appendChild(card);
+      }
+    }
+
+    function parseEvidenceInput(text) {
+      return String(text || "")
+        .split(";")
+        .map((item) => item.trim())
+        .filter(Boolean);
+    }
+
+    function parseMemoryRefs(text) {
+      return String(text || "")
+        .split(/[,，\s]+/)
+        .map((item) => Number(item.trim().replace(/^#/, "")))
+        .filter((item, index, all) => Number.isInteger(item) && item > 0 && all.indexOf(item) === index);
+    }
+
     function setBusy(busy) {
       state.busy = busy;
       sendButton.disabled = busy;
       promptInput.disabled = busy;
+      attachImageButton.disabled = busy;
+      removeImageButton.disabled = busy;
       sendButton.textContent = busy ? "..." : t("send");
     }
 
@@ -1308,6 +1771,7 @@
       skillText.value = config.skill_text || "";
       quantizationMode.value = config.quantization_mode || "4bit";
       deviceMapMode.value = config.device_map_mode || "gpu";
+      modelLoaderMode.value = config.model_loader_mode || "auto";
       contextWindowTokens.value = String(config.context_window_tokens || 0);
       applyLanguage(languageSelect.value);
     }
@@ -1529,22 +1993,33 @@
       const sessionId = sessionInput.value.trim() || "web";
       saveSessionId();
       const maxNewTokens = Number(maxTokensInput.value || 160);
+      const image = state.selectedImage;
+      const userDisplayText = image ? `${text}\n[${t("imageAttached")}: ${image.name}]` : text;
 
-      state.messages.push({ role: "user", content: text });
+      state.messages.push({ role: "user", content: userDisplayText });
       state.messages.push({ role: "assistant", content: t("thinking") });
       saveMessages();
       renderMessages();
       setBusy(true);
+      if (image) {
+        clearSelectedImage();
+      }
 
       try {
-        const res = await fetch("/chat", {
+        const endpoint = image ? "/chat/image" : "/chat";
+        const body = {
+          user_text: text,
+          session_id: sessionId,
+          max_new_tokens: maxNewTokens,
+        };
+        if (image) {
+          body.image_base64 = image.dataUrl;
+          body.image_name = image.name;
+        }
+        const res = await fetch(endpoint, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            user_text: text,
-            session_id: sessionId,
-            max_new_tokens: maxNewTokens,
-          }),
+          body: JSON.stringify(body),
         });
         if (!res.ok) {
           const detail = await res.text();
@@ -1610,6 +2085,75 @@
       }
     }
 
+    async function loadMemories(showLoadedToast = false) {
+      const sessionId = encodeURIComponent(sessionInput.value.trim() || "web");
+      const status = memoryStatusFilter.value;
+      const params = new URLSearchParams({ include_inactive: "true" });
+      if (status) params.set("status", status);
+      const res = await fetch(`/sessions/${sessionId}/memories?${params.toString()}`);
+      if (!res.ok) {
+        const detail = await res.text();
+        throw new Error(parseErrorText(detail) || `HTTP ${res.status}`);
+      }
+      const data = await res.json();
+      renderMemoryList(data.memories || []);
+      if (showLoadedToast) showToast(t("memoryLoaded"));
+    }
+
+    async function updateMemoryStatus(memoryId, status) {
+      const sessionId = encodeURIComponent(sessionInput.value.trim() || "web");
+      try {
+        const res = await fetch(`/sessions/${sessionId}/memories/${encodeURIComponent(memoryId)}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status }),
+        });
+        if (!res.ok) {
+          const detail = await res.text();
+          throw new Error(parseErrorText(detail) || `HTTP ${res.status}`);
+        }
+        await loadMemories(false);
+        showToast(t("memoryUpdated"));
+      } catch (err) {
+        showToast(`${t("memoryUpdateFailed")}: ${err.message}`);
+      }
+    }
+
+    async function updateMemoryDetails(memoryId, payload) {
+      const sessionId = encodeURIComponent(sessionInput.value.trim() || "web");
+      try {
+        const res = await fetch(`/sessions/${sessionId}/memories/${encodeURIComponent(memoryId)}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) {
+          const detail = await res.text();
+          throw new Error(parseErrorText(detail) || `HTTP ${res.status}`);
+        }
+        await loadMemories(false);
+        showToast(t("memoryUpdated"));
+      } catch (err) {
+        showToast(`${t("memoryUpdateFailed")}: ${err.message}`);
+      }
+    }
+
+    async function deleteMemoryRecord(memoryId) {
+      if (!window.confirm(t("memoryDeleteConfirm"))) return;
+      const sessionId = encodeURIComponent(sessionInput.value.trim() || "web");
+      try {
+        const res = await fetch(`/sessions/${sessionId}/memories/${encodeURIComponent(memoryId)}`, { method: "DELETE" });
+        if (!res.ok) {
+          const detail = await res.text();
+          throw new Error(parseErrorText(detail) || `HTTP ${res.status}`);
+        }
+        await loadMemories(false);
+        showToast(t("memoryDeleted"));
+      } catch (err) {
+        showToast(`${t("memoryUpdateFailed")}: ${err.message}`);
+      }
+    }
+
     document.getElementById("chatForm").addEventListener("submit", (event) => {
       event.preventDefault();
       const text = promptInput.value.trim();
@@ -1617,6 +2161,16 @@
       promptInput.value = "";
       sendMessage(text);
     });
+
+    attachImageButton.addEventListener("click", () => {
+      if (!state.busy) imageInput.click();
+    });
+
+    imageInput.addEventListener("change", () => {
+      readSelectedImage(imageInput.files && imageInput.files[0]);
+    });
+
+    removeImageButton.addEventListener("click", clearSelectedImage);
 
     promptInput.addEventListener("keydown", (event) => {
       if (event.key === "Enter" && !event.shiftKey) {
@@ -1709,6 +2263,7 @@
             skill_text: skillText.value.trim(),
             quantization_mode: quantizationMode.value,
             device_map_mode: deviceMapMode.value,
+            model_loader_mode: modelLoaderMode.value,
             context_window_tokens: Number(contextWindowTokens.value || 0),
             ui_language: languageSelect.value,
           }),
@@ -1738,6 +2293,34 @@
       } catch (err) {
         showToast(`${t("memoryFailed")}：${err.message}`);
       }
+    });
+
+    document.getElementById("memoryButton").addEventListener("click", async () => {
+      closeMoreMenu();
+      memoryModal.classList.add("open");
+      try {
+        await loadMemories(false);
+      } catch (err) {
+        showToast(`${t("requestFailed")}: ${err.message}`);
+      }
+    });
+
+    document.getElementById("closeMemoryButton").addEventListener("click", () => {
+      memoryModal.classList.remove("open");
+    });
+
+    memoryModal.addEventListener("click", (event) => {
+      if (event.target === memoryModal) {
+        memoryModal.classList.remove("open");
+      }
+    });
+
+    document.getElementById("refreshMemoryButton").addEventListener("click", () => {
+      loadMemories(true).catch((err) => showToast(`${t("requestFailed")}: ${err.message}`));
+    });
+
+    memoryStatusFilter.addEventListener("change", () => {
+      loadMemories(false).catch((err) => showToast(`${t("requestFailed")}: ${err.message}`));
     });
 
     document.getElementById("exitButton").addEventListener("click", async () => {

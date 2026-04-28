@@ -21,12 +21,14 @@ from linebot.v3.messaging import (
     ApiClient,
     Configuration,
     MessagingApi,
+    MessagingApiBlob,
     PushMessageRequest,
     ReplyMessageRequest,
     TextMessage,
 )
 from linebot.v3.webhooks import (
     GroupSource,
+    ImageMessageContent,
     MessageEvent,
     RoomSource,
     TextMessageContent,
@@ -47,6 +49,7 @@ DATA_DIR = PROJECT_ROOT / "data"
 CONTACTS_PATH = DATA_DIR / "line_contacts.json"
 WAKEUP_STATE_PATH = DATA_DIR / "line_wakeup_state.json"
 DEFAULT_AUDIO_DIR = DATA_DIR / "line_audio"
+DEFAULT_IMAGE_DIR = DATA_DIR / "line_images"
 load_dotenv(LINE_DIR / ".env", override=False)
 load_dotenv(override=False)
 
@@ -81,6 +84,23 @@ def _env_int(name: str, default: int) -> int:
         return int(os.getenv(name, str(default)))
     except ValueError:
         return default
+
+
+def line_max_new_tokens() -> int:
+    value = _env_int("ROLEWEAVER_LINE_MAX_NEW_TOKENS", 192)
+    return max(16, min(4096, value))
+
+
+def _parse_hhmm(value: str, default_hour: int, default_minute: int = 0) -> tuple[int, int]:
+    try:
+        hour_text, minute_text = value.split(":", 1)
+        hour = int(hour_text)
+        minute = int(minute_text)
+    except (AttributeError, ValueError):
+        return default_hour, default_minute
+    if not (0 <= hour <= 23 and 0 <= minute <= 59):
+        return default_hour, default_minute
+    return hour, minute
 
 
 def _json_load(path: Path, default):
@@ -250,8 +270,91 @@ def send_reply_audio(reply_token: str, audio_url: str, duration_ms: int):
         )
 
 
-def send_chat_reply(reply_token: str, text: str, target_key: str):
-    if not _truthy_env("ROLEWEAVER_REPLY_VOICE", default=False):
+def _time_in_window(now: datetime, start: tuple[int, int], end: tuple[int, int]) -> bool:
+    start_time = now.replace(hour=start[0], minute=start[1], second=0, microsecond=0)
+    end_time = now.replace(hour=end[0], minute=end[1], second=0, microsecond=0)
+    if start_time <= end_time:
+        return start_time <= now < end_time
+    return now >= start_time or now < end_time
+
+
+def _voice_text_only_window_active(now: Optional[datetime] = None) -> bool:
+    if not _truthy_env("ROLEWEAVER_VOICE_TEXT_ONLY_WINDOW_ENABLED", default=False):
+        return False
+    timezone_name = os.getenv("ROLEWEAVER_VOICE_TEXT_ONLY_TIMEZONE") or os.getenv(
+        "ROLEWEAVER_WAKEUP_TIMEZONE", "Asia/Tokyo"
+    )
+    tz = ZoneInfo(timezone_name)
+    current = now.astimezone(tz) if now else datetime.now(tz)
+    start = _parse_hhmm(os.getenv("ROLEWEAVER_VOICE_TEXT_ONLY_START", "08:00"), 8, 0)
+    end = _parse_hhmm(os.getenv("ROLEWEAVER_VOICE_TEXT_ONLY_END", "17:30"), 17, 30)
+    return _time_in_window(current, start, end)
+
+
+def _voice_rejected(user_text: str) -> bool:
+    text = (user_text or "").strip().lower()
+    if not text:
+        return False
+    negative_markers = (
+        "不要语音",
+        "不用语音",
+        "别发语音",
+        "只要文字",
+        "文字で",
+        "音声なし",
+        "声なし",
+        "テキストで",
+        "no voice",
+        "no audio",
+        "text only",
+    )
+    return any(marker in text for marker in negative_markers)
+
+
+def _voice_requested_once(user_text: str) -> bool:
+    text = (user_text or "").strip().lower()
+    if not text or _voice_rejected(text):
+        return False
+    positive_markers = (
+        "语音",
+        "語音",
+        "音频",
+        "音訊",
+        "合成一次",
+        "用声音",
+        "发语音",
+        "念一下",
+        "读出来",
+        "讀出來",
+        "音声",
+        "ボイス",
+        "声で",
+        "読み上げ",
+        "読んで",
+        "喋って",
+        "しゃべって",
+        "voice",
+        "audio",
+        "speak",
+        "say it",
+        "read aloud",
+        "read it aloud",
+    )
+    return any(marker in text for marker in positive_markers)
+
+
+def should_use_voice_reply(user_text: str, now: Optional[datetime] = None) -> bool:
+    if _voice_rejected(user_text):
+        return False
+    if _voice_requested_once(user_text):
+        return True
+    if _voice_text_only_window_active(now):
+        return False
+    return _truthy_env("ROLEWEAVER_REPLY_VOICE", default=False)
+
+
+def send_chat_reply(reply_token: str, text: str, target_key: str, user_text: str):
+    if not should_use_voice_reply(user_text):
         send_reply(reply_token, text)
         return
     try:
@@ -264,6 +367,27 @@ def send_chat_reply(reply_token: str, text: str, target_key: str):
         print("[RoleWeaver LINE] Voice reply failed; falling back to text:")
         traceback.print_exc()
     send_reply(reply_token, text)
+
+
+def _line_image_dir() -> Path:
+    return Path(os.getenv("ROLEWEAVER_LINE_IMAGE_DIR") or DEFAULT_IMAGE_DIR)
+
+
+def _line_image_prompt() -> str:
+    return os.getenv(
+        "ROLEWEAVER_LINE_IMAGE_PROMPT",
+        "请看这张图片，并用当前角色的语气像 LINE 聊天一样短一点、自然回应。不要机械描述，只抓用户可能想让你注意的重点。",
+    )
+
+
+def download_line_image(message_id: str, session_id: str) -> Path:
+    output_dir = _line_image_dir() / session_id
+    output_dir.mkdir(parents=True, exist_ok=True)
+    target = output_dir / f"{datetime.now().strftime('%Y%m%d-%H%M%S')}_{message_id}.jpg"
+    with ApiClient(get_line_configuration()) as api_client:
+        content = MessagingApiBlob(api_client).get_message_content(message_id)
+    target.write_bytes(bytes(content))
+    return target
 
 
 def push_text(to: str, text: str):
@@ -532,7 +656,11 @@ async def callback(
 
             try:
                 service = get_chat_service()
-                reply_text = service.chat_once(user_text=user_text, session_id=session_id)
+                reply_text = service.chat_once(
+                    user_text=user_text,
+                    session_id=session_id,
+                    max_new_tokens=line_max_new_tokens(),
+                )
             except Exception as exc:
                 print("[RoleWeaver LINE] Chat handling failed:")
                 traceback.print_exc()
@@ -540,6 +668,27 @@ async def callback(
                     reply_text = f"RoleWeaver error: {exc}"
                 else:
                     reply_text = "RoleWeaver is temporarily unavailable. Please check the bot server logs."
-            send_chat_reply(event.reply_token, reply_text, session_id)
+            send_chat_reply(event.reply_token, reply_text, session_id, user_text)
+        elif isinstance(event, MessageEvent) and isinstance(event.message, ImageMessageContent):
+            remember_contact(event.source)
+            session_id = build_session_id(event.source)
+            user_text = _line_image_prompt()
+            try:
+                image_path = download_line_image(event.message.id, session_id)
+                service = get_chat_service()
+                reply_text = service.chat_once_with_image(
+                    user_text=user_text,
+                    image_path=str(image_path),
+                    session_id=session_id,
+                    max_new_tokens=line_max_new_tokens(),
+                )
+            except Exception as exc:
+                print("[RoleWeaver LINE] Image chat handling failed:")
+                traceback.print_exc()
+                if _truthy_env("ROLEWEAVER_LINE_DEBUG_ERRORS", default=False):
+                    reply_text = f"RoleWeaver image error: {exc}"
+                else:
+                    reply_text = "RoleWeaver cannot read this image yet. Please check the bot server logs."
+            send_chat_reply(event.reply_token, reply_text, session_id, user_text)
 
     return JSONResponse({"status": "ok", "events": len(events)})

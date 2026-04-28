@@ -1,4 +1,5 @@
 import csv
+import io
 import json
 import os
 try:
@@ -13,11 +14,12 @@ from typing import Dict, List, Optional
 PROJECT_ROOT = Path(__file__).resolve().parent
 
 DEFAULT_BASE_MODEL_PATH = str(PROJECT_ROOT / "qwen35-9b")
-DEFAULT_LORA_PATH = str(PROJECT_ROOT / "meiling-qwen35-9b-lora")
+DEFAULT_LORA_PATH = ""
 DEFAULT_SESSION_ROOT = str(PROJECT_ROOT / "memory")
 DEFAULT_IDLE_CONSOLIDATION_SECONDS = 600
 DEFAULT_QUANTIZATION_MODE = "4bit"
 DEFAULT_DEVICE_MAP_MODE = "gpu"
+DEFAULT_MODEL_LOADER_MODE = "auto"
 DEFAULT_CONTEXT_WINDOW_TOKENS = 0
 DEFAULT_CONFIG_FILENAMES = (
     "roleweaver.config.csv",
@@ -123,6 +125,22 @@ def _collect_skill_reference_files(skill_path: Path) -> List[Path]:
     return reference_files
 
 
+def _persona_kernel_file(skill_path: Path) -> Optional[Path]:
+    candidates = [
+        skill_path.parent / "persona_kernel.json",
+        skill_path.parent / "references" / "persona_kernel.json",
+    ]
+    for candidate in candidates:
+        if candidate.exists() and candidate.is_file():
+            return candidate
+    return None
+
+
+def _read_persona_kernel(path: Path) -> str:
+    data = json.loads(_read_text_file(path))
+    return json.dumps(data, ensure_ascii=False, indent=2)
+
+
 def read_skill_bundle(path: Optional[str]) -> str:
     """Read one SKILL.md path and automatically inline nearby reference markdown."""
     if not path:
@@ -134,6 +152,21 @@ def read_skill_bundle(path: Optional[str]) -> str:
         raise FileNotFoundError(f"Skill file is not a file: {candidate}")
 
     pieces = [_read_text_file(candidate)]
+    persona_kernel = _persona_kernel_file(candidate)
+    if persona_kernel:
+        try:
+            relative_name = persona_kernel.relative_to(candidate.parent)
+        except ValueError:
+            relative_name = persona_kernel.name
+        pieces.append(
+            "## Persona Kernel: "
+            f"{relative_name}\n\n"
+            "The following structured persona kernel has the same priority as the SKILL.md role definition. "
+            "It preserves identity, autonomy, boundaries, relationship dynamics, and media adaptation limits.\n\n"
+            "```json\n"
+            f"{_read_persona_kernel(persona_kernel)}\n"
+            "```"
+        )
     reference_files = _collect_skill_reference_files(candidate)
     if reference_files:
         rendered_refs = []
@@ -198,6 +231,25 @@ def normalize_device_map_mode(value: Optional[str]) -> str:
     return normalized
 
 
+def normalize_model_loader_mode(value: Optional[str]) -> str:
+    normalized = (_clean_config_value(value) or DEFAULT_MODEL_LOADER_MODE).lower()
+    aliases = {
+        "llm": "text",
+        "causal": "text",
+        "causal_lm": "text",
+        "causallm": "text",
+        "image": "vision",
+        "image_text": "vision",
+        "image-text": "vision",
+        "vlm": "vision",
+        "multimodal": "vision",
+    }
+    normalized = aliases.get(normalized, normalized)
+    if normalized not in {"auto", "text", "vision"}:
+        return DEFAULT_MODEL_LOADER_MODE
+    return normalized
+
+
 def discover_config_file(explicit_path: Optional[str] = None) -> Optional[Path]:
     requested = explicit_path or os.getenv("ROLEWEAVER_CONFIG_FILE")
     if requested:
@@ -213,11 +265,32 @@ def discover_config_file(explicit_path: Optional[str] = None) -> Optional[Path]:
     return None
 
 
+CONFIG_TEXT_ENCODINGS = ("utf-8-sig", "utf-8", "cp932", "shift_jis", "gb18030", "mbcs")
+
+
+def _read_config_text(path: Path) -> str:
+    data = path.read_bytes()
+    errors = []
+    for encoding in CONFIG_TEXT_ENCODINGS:
+        try:
+            return data.decode(encoding).lstrip("\ufeff")
+        except LookupError:
+            continue
+        except UnicodeDecodeError as exc:
+            errors.append(f"{encoding}: {exc}")
+    raise UnicodeDecodeError(
+        "utf-8",
+        data,
+        0,
+        min(1, len(data)),
+        f"Unable to decode config file {path}. Tried: {', '.join(CONFIG_TEXT_ENCODINGS)}. {'; '.join(errors)}",
+    )
+
+
 def _read_csv_config(path: Path) -> Dict:
     values: Dict[str, str] = {}
-    with path.open("r", encoding="utf-8-sig", newline="") as f:
-        reader = csv.reader(f)
-        rows = list(reader)
+    reader = csv.reader(io.StringIO(_read_config_text(path), newline=""))
+    rows = list(reader)
 
     if not rows:
         return values
@@ -247,14 +320,14 @@ def _read_csv_config(path: Path) -> Dict:
 def _read_toml_config(path: Path) -> Dict:
     if tomllib is None:
         raise RuntimeError("TOML config requires Python 3.11+; use roleweaver.config.csv instead.")
-    data = tomllib.loads(path.read_text(encoding="utf-8"))
+    data = tomllib.loads(_read_config_text(path))
     if "roleweaver" in data and isinstance(data["roleweaver"], dict):
         return dict(data["roleweaver"])
     return dict(data)
 
 
 def _read_json_config(path: Path) -> Dict:
-    data = json.loads(path.read_text(encoding="utf-8"))
+    data = json.loads(_read_config_text(path))
     if "roleweaver" in data and isinstance(data["roleweaver"], dict):
         return dict(data["roleweaver"])
     return data if isinstance(data, dict) else {}
@@ -286,6 +359,7 @@ class RoleConfig:
     session_root: str = DEFAULT_SESSION_ROOT
     quantization_mode: str = DEFAULT_QUANTIZATION_MODE
     device_map_mode: str = DEFAULT_DEVICE_MAP_MODE
+    model_loader_mode: str = DEFAULT_MODEL_LOADER_MODE
     context_window_tokens: int = DEFAULT_CONTEXT_WINDOW_TOKENS
     system_prompt: str = DEFAULT_ROLE_SYSTEM_PROMPT
     normal_system_prompt: str = NORMAL_SYSTEM_PROMPT
@@ -346,6 +420,9 @@ class RoleConfig:
             ),
             device_map_mode=normalize_device_map_mode(
                 pick("device_map_mode", "ROLEWEAVER_DEVICE_MAP_MODE", DEFAULT_DEVICE_MAP_MODE)
+            ),
+            model_loader_mode=normalize_model_loader_mode(
+                pick("model_loader_mode", "ROLEWEAVER_MODEL_LOADER_MODE", DEFAULT_MODEL_LOADER_MODE)
             ),
             context_window_tokens=normalize_context_window_tokens(
                 pick("context_window_tokens", "ROLEWEAVER_CONTEXT_WINDOW_TOKENS", DEFAULT_CONTEXT_WINDOW_TOKENS)

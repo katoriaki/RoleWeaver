@@ -89,6 +89,12 @@ MEMORY_WRITE_THRESHOLDS = {
     "graph_facts": 0.72,
     "episodic_candidates": 0.58,
 }
+REFLECTION_MIN_ACTIVE_MEMORIES = 3
+REFLECTION_MAX_LINKED_MEMORIES = 6
+EPISODIC_STALE_DAYS = 90
+EPISODIC_ARCHIVE_DAYS = 120
+PREFERENCE_STALE_DAYS = 180
+LOW_CONFIDENCE_THRESHOLD = 0.42
 
 
 MISUZU_KNOWLEDGE_SEED = []
@@ -96,6 +102,172 @@ MISUZU_KNOWLEDGE_SEED = []
 
 def now_ts() -> int:
     return int(time.time())
+
+
+def now_iso() -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%S%z", time.localtime())
+
+
+def parse_memory_time(value) -> Optional[int]:
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return int(value)
+    text = str(value).strip()
+    if not text:
+        return None
+    if text.isdigit():
+        return int(text)
+    for fmt in ("%Y-%m-%dT%H:%M:%S%z", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d"):
+        try:
+            return int(time.mktime(time.strptime(text[:25], fmt)))
+        except Exception:
+            continue
+    return None
+
+
+def memory_age_days(memory: Dict[str, Any], reference_ts: Optional[int] = None) -> float:
+    reference_ts = reference_ts or now_ts()
+    timestamp = parse_memory_time(memory.get("timestamp")) or parse_memory_time(memory.get("valid_from"))
+    if not timestamp:
+        return 0.0
+    return max(0.0, (reference_ts - int(timestamp)) / 86400.0)
+
+
+MEMORY_SOURCE_ALIASES = {
+    "conversation": "chat",
+    "chat": "chat",
+    "image": "image",
+    "manual": "manual",
+    "imported_reference": "imported_reference",
+    "skill": "skill",
+    "system": "system",
+    "summary": "system",
+}
+
+
+MEMORY_TYPE_ALIASES = {
+    "episodic": "episodic",
+    "event": "episodic",
+    "preference": "preference",
+    "profile": "preference",
+    "relationship": "relationship",
+    "boundary": "boundary",
+    "character_fact": "character_fact",
+    "task_state": "task_state",
+    "summary": "summary",
+}
+
+MEMORY_LAYER_ALIASES = {
+    "short": "short_term",
+    "short_term": "short_term",
+    "mid": "mid_term",
+    "mid_term": "mid_term",
+    "long": "long_term",
+    "long_term": "long_term",
+    "graph": "graph",
+    "contradiction": "contradiction_graph",
+    "contradiction_graph": "contradiction_graph",
+    "reflection": "reflection_notes",
+    "reflection_notes": "reflection_notes",
+}
+
+
+def normalize_memory_source(source: str) -> str:
+    key = str(source or "conversation").strip().lower()
+    return MEMORY_SOURCE_ALIASES.get(key, "chat")
+
+
+def infer_memory_type(category: str, metadata: Dict[str, Any]) -> str:
+    explicit = metadata.get("memory_type")
+    if explicit in MEMORY_TYPE_ALIASES.values():
+        return explicit
+    key = str(category or "episodic").strip().lower()
+    return MEMORY_TYPE_ALIASES.get(key, "episodic")
+
+
+def infer_memory_scope(memory_type: str, source: str, metadata: Dict[str, Any]) -> str:
+    explicit = metadata.get("scope")
+    if explicit in {"user_personalization", "character_canon", "relationship_context", "system_runtime"}:
+        return explicit
+    if memory_type == "character_fact" or source == "skill":
+        return "character_canon"
+    if memory_type in {"relationship", "episodic", "summary", "boundary"}:
+        return "relationship_context"
+    if memory_type == "task_state" or source == "system":
+        return "system_runtime"
+    return "user_personalization"
+
+
+def infer_memory_layer(memory_type: str, source: str, metadata: Dict[str, Any], tags: Optional[List[str]] = None) -> str:
+    explicit = metadata.get("memory_layer") or metadata.get("layer")
+    if explicit:
+        normalized = MEMORY_LAYER_ALIASES.get(str(explicit).strip().lower())
+        if normalized:
+            return normalized
+
+    source_key = normalize_memory_source(source)
+    tag_set = {str(tag).strip().lower() for tag in (tags or [])}
+    if source_key == "system" and ("reflection" in tag_set or "relationship_summary" in tag_set):
+        return "reflection_notes"
+    if source in {"reflection", "summary_buffer", "context_compression"}:
+        if source == "reflection" or "reflection" in tag_set:
+            return "reflection_notes"
+        return "mid_term"
+    if memory_type == "summary":
+        return "reflection_notes" if "reflection" in tag_set else "mid_term"
+    if memory_type == "task_state":
+        return "mid_term"
+    return "long_term"
+
+
+def normalize_memory_evidence(metadata: Dict[str, Any], source: str) -> List[str]:
+    evidence = metadata.get("evidence")
+    if isinstance(evidence, list):
+        return [str(item) for item in evidence if str(item).strip()]
+    if isinstance(evidence, str) and evidence.strip():
+        return [evidence.strip()]
+    return [f"source:{source}"]
+
+
+def normalize_memory_confidence(metadata: Dict[str, Any]) -> float:
+    try:
+        value = float(metadata.get("confidence", 0.65))
+    except (TypeError, ValueError):
+        value = 0.65
+    return max(0.0, min(1.0, value))
+
+
+def normalize_memory_refs(values) -> List[int]:
+    if values is None:
+        return []
+    if isinstance(values, str):
+        parts = re.split(r"[,，\s]+", values)
+    elif isinstance(values, (list, tuple, set)):
+        parts = list(values)
+    else:
+        parts = [values]
+    refs: List[int] = []
+    for item in parts:
+        try:
+            ref = int(str(item).strip().lstrip("#"))
+        except (TypeError, ValueError):
+            continue
+        if ref > 0 and ref not in refs:
+            refs.append(ref)
+    return refs
+
+
+def normalize_memory_evidence_list(values) -> List[str]:
+    if values is None:
+        return []
+    if isinstance(values, str):
+        parts = [line.strip() for line in values.replace("；", ";").split(";")]
+    elif isinstance(values, (list, tuple, set)):
+        parts = [str(item).strip() for item in values]
+    else:
+        parts = [str(values).strip()]
+    return [item for item in parts if item]
 
 
 def load_json_file(path: str, default):
@@ -146,6 +318,172 @@ def lexical_score(query: str, text: str) -> float:
     precision = overlap / len(d_terms)
     recall = overlap / len(q_terms)
     return (2 * precision * recall) / (precision + recall + 1e-8)
+
+
+CONTRADICTION_CUE_MARKERS = (
+    "correction",
+    "correcting",
+    "actually",
+    "i was wrong",
+    "was wrong",
+    "no longer",
+    "not anymore",
+    "anymore",
+    "instead",
+    "rather than",
+    "不是",
+    "并不是",
+    "不再",
+    "更正",
+    "纠正",
+    "其实",
+    "改成",
+    "说错",
+    "错了",
+    "而是",
+    "ではなく",
+    "じゃなく",
+    "違う",
+    "訂正",
+    "実は",
+)
+
+
+def has_contradiction_cue(text: str) -> bool:
+    normalized = normalize_for_match(text)
+    return any(marker in normalized for marker in CONTRADICTION_CUE_MARKERS)
+
+
+def append_unique_texts(current, additions) -> List[str]:
+    merged: List[str] = []
+    seen: Set[str] = set()
+    for item in normalize_memory_evidence_list(current) + normalize_memory_evidence_list(additions):
+        key = normalize_for_match(item)
+        if key and key not in seen:
+            seen.add(key)
+            merged.append(item)
+    return merged
+
+
+def append_reason(current: str, addition: str) -> str:
+    current = (current or "").strip()
+    addition = (addition or "").strip()
+    if not current:
+        return addition
+    if not addition or addition in current:
+        return current
+    return f"{current} {addition}"
+
+
+def detect_memory_contradictions(
+    new_content: str,
+    existing_memories: List[Dict],
+    *,
+    min_score: float = 0.12,
+    max_results: int = 3,
+) -> List[Dict[str, Any]]:
+    new_content = (new_content or "").strip()
+    if not new_content or not has_contradiction_cue(new_content):
+        return []
+
+    hits: List[Dict[str, Any]] = []
+    for memory in existing_memories or []:
+        if memory.get("status", "active") != "active":
+            continue
+        if memory.get("scope") == "character_canon" or memory.get("memory_type") == "character_fact":
+            continue
+        if memory.get("source_kind") in {"skill", "imported_reference"}:
+            continue
+        old_content = str(memory.get("content", "")).strip()
+        if not old_content:
+            continue
+        if normalize_for_match(old_content) == normalize_for_match(new_content):
+            continue
+
+        score = lexical_score(new_content, old_content)
+        if score < min_score:
+            continue
+
+        hits.append({
+            "memory_id": int(memory.get("id", 0)),
+            "score": round(float(score), 4),
+            "confidence": max(0.18, min(0.5, float(score))),
+            "reason": "auto_contradiction_detection: new memory contains a correction cue and overlaps with this active memory.",
+            "evidence": [
+                f"old_memory:{memory.get('id')}",
+                f"new_text:{compact_text(new_content, 72)}",
+            ],
+            "memory": memory,
+        })
+
+    hits.sort(key=lambda item: item["score"], reverse=True)
+    return hits[:max_results]
+
+
+def is_protected_character_memory(memory: Dict[str, Any]) -> bool:
+    return (
+        memory.get("scope") == "character_canon"
+        or memory.get("memory_type") == "character_fact"
+        or memory.get("source_kind") in {"skill", "imported_reference"}
+    )
+
+
+def reflection_signature(memories: List[Dict]) -> str:
+    ids = [str(memory.get("id")) for memory in memories if memory.get("id") is not None]
+    return "reflection:" + ",".join(ids)
+
+
+def memory_decay_update(memory: Dict[str, Any], reference_ts: Optional[int] = None) -> Optional[Dict[str, Any]]:
+    if is_protected_character_memory(memory):
+        return None
+    status = memory.get("status", "active")
+    memory_type = str(memory.get("memory_type", memory.get("category", "episodic")))
+    confidence = float(memory.get("confidence", 0.65))
+    importance = int(memory.get("importance", 3))
+    age_days = memory_age_days(memory, reference_ts=reference_ts)
+
+    valid_until_ts = parse_memory_time(memory.get("valid_until"))
+    if status == "active" and valid_until_ts is not None and valid_until_ts < (reference_ts or now_ts()):
+        return {
+            "status": "stale",
+            "confidence": min(confidence, 0.35),
+            "reason": append_reason(memory.get("reason", ""), "Memory maintenance: valid_until has passed."),
+            "evidence": append_unique_texts(memory.get("evidence"), ["maintenance:valid_until_expired"]),
+        }
+
+    if status == "active" and memory_type in {"episodic", "summary"}:
+        if importance <= 1 and confidence <= LOW_CONFIDENCE_THRESHOLD and age_days >= EPISODIC_ARCHIVE_DAYS:
+            return {
+                "status": "archived",
+                "confidence": min(confidence, 0.28),
+                "reason": append_reason(memory.get("reason", ""), "Memory maintenance: low-confidence old episodic detail archived."),
+                "evidence": append_unique_texts(memory.get("evidence"), [f"maintenance:age_days:{age_days:.1f}"]),
+            }
+        if importance <= 2 and confidence <= 0.55 and age_days >= EPISODIC_STALE_DAYS:
+            return {
+                "status": "stale",
+                "confidence": min(confidence, 0.4),
+                "reason": append_reason(memory.get("reason", ""), "Memory maintenance: old low-value episodic detail marked stale."),
+                "evidence": append_unique_texts(memory.get("evidence"), [f"maintenance:age_days:{age_days:.1f}"]),
+            }
+
+    if status == "active" and memory_type == "preference":
+        if confidence <= LOW_CONFIDENCE_THRESHOLD and age_days >= PREFERENCE_STALE_DAYS:
+            return {
+                "status": "stale",
+                "confidence": min(confidence, 0.4),
+                "reason": append_reason(memory.get("reason", ""), "Memory maintenance: weak preference became stale with age."),
+                "evidence": append_unique_texts(memory.get("evidence"), [f"maintenance:age_days:{age_days:.1f}"]),
+            }
+
+    if status == "contradicted" and not memory.get("valid_until"):
+        return {
+            "valid_until": now_iso(),
+            "reason": append_reason(memory.get("reason", ""), "Memory maintenance: contradicted memory validity was closed."),
+            "evidence": append_unique_texts(memory.get("evidence"), ["maintenance:contradiction_review"]),
+        }
+
+    return None
 
 
 def recency_bonus(timestamp: Optional[int], horizon_days: float = 30.0) -> float:
@@ -530,12 +868,22 @@ def build_memory_write_plan(
 
 @dataclass
 class MemoryContextPacket:
+    mid_term_lines: List[str] = field(default_factory=list)
+    long_term_lines: List[str] = field(default_factory=list)
+    reflection_lines: List[str] = field(default_factory=list)
     profile_lines: List[str] = field(default_factory=list)
     episodic_lines: List[str] = field(default_factory=list)
     knowledge_lines: List[str] = field(default_factory=list)
+    contradiction_lines: List[str] = field(default_factory=list)
 
     def render(self) -> str:
         sections = []
+        if self.mid_term_lines:
+            sections.append("【中期记忆】\n" + "\n".join(f"- {line}" for line in self.mid_term_lines))
+        if self.long_term_lines:
+            sections.append("【长期记忆】\n" + "\n".join(f"- {line}" for line in self.long_term_lines))
+        if self.reflection_lines:
+            sections.append("【反思笔记】\n" + "\n".join(f"- {line}" for line in self.reflection_lines))
 
         if self.profile_lines:
             sections.append("【用户画像】\n" + "\n".join(f"- {line}" for line in self.profile_lines))
@@ -543,6 +891,9 @@ class MemoryContextPacket:
             sections.append("【情节记忆】\n" + "\n".join(f"- {line}" for line in self.episodic_lines))
         if self.knowledge_lines:
             sections.append("【角色知识】\n" + "\n".join(f"- {line}" for line in self.knowledge_lines))
+
+        if self.contradiction_lines:
+            sections.append("【矛盾链提示】\n" + "\n".join(f"- {line}" for line in self.contradiction_lines))
 
         if not sections:
             return ""
@@ -583,15 +934,34 @@ class HybridMemoryStore:
         for i, item in enumerate(data, start=1):
             if not isinstance(item, dict):
                 continue
+            metadata = item.get("metadata", {})
+            if not isinstance(metadata, dict):
+                metadata = {}
+            normalized_source = normalize_memory_source(item.get("source", "conversation"))
+            memory_type = item.get("memory_type", infer_memory_type(item.get("category", "episodic"), metadata))
+            tags = item.get("tags", [])
             normalized.append({
                 "id": int(item.get("id", i)),
+                "schema_version": item.get("schema_version", "1.0"),
                 "content": item.get("content", "").strip(),
-                "tags": item.get("tags", []),
+                "memory_type": memory_type,
+                "memory_layer": item.get("memory_layer", infer_memory_layer(memory_type, item.get("source", "conversation"), metadata, tags)),
+                "scope": item.get("scope", infer_memory_scope(memory_type, normalized_source, metadata)),
+                "tags": tags,
                 "importance": int(item.get("importance", 3)),
                 "timestamp": int(item.get("timestamp", now_ts())),
-                "metadata": item.get("metadata", {}),
+                "valid_from": item.get("valid_from", now_iso()),
+                "valid_until": item.get("valid_until"),
+                "status": item.get("status", "active"),
+                "confidence": normalize_memory_confidence({"confidence": item.get("confidence", metadata.get("confidence", 0.65))}),
+                "reason": item.get("reason", metadata.get("reason", "")),
+                "evidence": normalize_memory_evidence_list(item.get("evidence")) or normalize_memory_evidence(metadata, normalized_source),
+                "links": item.get("links", []),
+                "contradicts": normalize_memory_refs(item.get("contradicts", [])),
+                "metadata": metadata,
                 "category": item.get("category", "episodic"),
                 "source": item.get("source", "conversation"),
+                "source_kind": item.get("source_kind", normalized_source),
             })
         return [m for m in normalized if m["content"]]
 
@@ -723,47 +1093,64 @@ class HybridMemoryStore:
     ):
         content = (content or "").strip()
         if not content:
-            return
+            return None
         tags = tags or []
         metadata = metadata or {}
+        normalized_source = normalize_memory_source(source)
+        memory_type = infer_memory_type(category, metadata)
+        memory_layer = infer_memory_layer(memory_type, source, metadata, tags)
 
         for memory in self.memories:
             same_content = normalize_for_match(memory["content"]) == normalize_for_match(content)
             same_category = memory.get("category", "episodic") == category
             if same_content and same_category:
-                return
+                return None
 
         memory = {
             "id": len(self.memories) + 1,
+            "schema_version": str(metadata.get("schema_version", "1.0")),
             "content": content,
+            "memory_type": memory_type,
+            "memory_layer": memory_layer,
+            "scope": infer_memory_scope(memory_type, normalized_source, metadata),
             "tags": tags,
             "importance": int(importance),
             "timestamp": now_ts(),
+            "valid_from": str(metadata.get("valid_from", now_iso())),
+            "valid_until": metadata.get("valid_until"),
+            "status": str(metadata.get("status", "active")),
+            "confidence": normalize_memory_confidence(metadata),
+            "reason": str(metadata.get("reason", "")),
+            "evidence": normalize_memory_evidence(metadata, normalized_source),
+            "links": metadata.get("links", []),
+            "contradicts": normalize_memory_refs(metadata.get("contradicts", [])),
             "metadata": metadata,
             "category": category,
             "source": source,
+            "source_kind": normalized_source,
         }
         self.memories.append(memory)
         self._save_memories()
 
         if self.encoder is None:
-            return
+            return dict(memory)
 
         vecs = self._encode_texts([self._indexable_text(memory)])
         if vecs is None:
-            return
+            return dict(memory)
 
         if faiss is None:
             if self.embedding_matrix is None or len(self.embedding_matrix) == 0:
                 self.embedding_matrix = vecs
             else:
                 self.embedding_matrix = np.vstack([self.embedding_matrix, vecs])
-            return
+            return dict(memory)
 
         if self.index is None:
             self.index = self._new_index()
         self.index.add(vecs)
         self._save_index()
+        return dict(memory)
 
     def delete_memory(self, memory_id: int):
         self.memories = [m for m in self.memories if m["id"] != memory_id]
@@ -771,6 +1158,83 @@ class HybridMemoryStore:
             memory["id"] = i
         self._save_memories()
         self._rebuild_index()
+
+    def update_memory(
+        self,
+        memory_id: int,
+        *,
+        content: Optional[str] = None,
+        tags: Optional[List[str]] = None,
+        importance: Optional[int] = None,
+        status: Optional[str] = None,
+        confidence: Optional[float] = None,
+        valid_until: Optional[str] = None,
+        memory_layer: Optional[str] = None,
+        reason: Optional[str] = None,
+        evidence: Optional[List[str]] = None,
+        contradicts: Optional[List[int]] = None,
+        metadata: Optional[Dict] = None,
+    ) -> Optional[Dict]:
+        valid_statuses = {"active", "stale", "contradicted", "archived", "deleted"}
+        changed = False
+        target = None
+        for memory in self.memories:
+            if int(memory.get("id", -1)) == int(memory_id):
+                target = memory
+                break
+        if target is None:
+            return None
+
+        if content is not None:
+            cleaned = content.strip()
+            if cleaned:
+                target["content"] = cleaned
+                changed = True
+        if tags is not None:
+            target["tags"] = [str(tag).strip() for tag in tags if str(tag).strip()]
+            changed = True
+        if importance is not None:
+            target["importance"] = max(1, min(int(importance), 5))
+            changed = True
+        if status is not None:
+            normalized_status = str(status).strip().lower()
+            if normalized_status not in valid_statuses:
+                raise ValueError(f"invalid memory status: {status}")
+            target["status"] = normalized_status
+            changed = True
+        if confidence is not None:
+            target["confidence"] = normalize_memory_confidence({"confidence": confidence})
+            changed = True
+        if valid_until is not None:
+            target["valid_until"] = valid_until.strip() or None
+            changed = True
+        if memory_layer is not None:
+            normalized_layer = MEMORY_LAYER_ALIASES.get(str(memory_layer).strip().lower())
+            if normalized_layer is None:
+                raise ValueError(f"invalid memory layer: {memory_layer}")
+            target["memory_layer"] = normalized_layer
+            changed = True
+        if reason is not None:
+            target["reason"] = reason.strip()
+            changed = True
+        if evidence is not None:
+            target["evidence"] = normalize_memory_evidence_list(evidence)
+            changed = True
+        if contradicts is not None:
+            target["contradicts"] = normalize_memory_refs(contradicts)
+            changed = True
+        if metadata:
+            current_metadata = target.get("metadata")
+            if not isinstance(current_metadata, dict):
+                current_metadata = {}
+            current_metadata.update(metadata)
+            target["metadata"] = current_metadata
+            changed = True
+
+        if changed:
+            self._save_memories()
+            self._rebuild_index()
+        return dict(target)
 
     def clear_all(self):
         self.memories = []
@@ -783,6 +1247,7 @@ class HybridMemoryStore:
         top_k: int = 5,
         min_score: float = 0.18,
         categories: Optional[List[str]] = None,
+        memory_layers: Optional[List[str]] = None,
     ) -> List[Dict]:
         query = (query or "").strip()
         if not query or not self.memories:
@@ -808,7 +1273,11 @@ class HybridMemoryStore:
 
         results = []
         for memory in self.memories:
+            if memory.get("status", "active") != "active":
+                continue
             if categories and memory.get("category") not in categories:
+                continue
+            if memory_layers and memory.get("memory_layer") not in memory_layers:
                 continue
 
             dense = dense_scores.get(memory["id"], 0.0)
@@ -1261,6 +1730,35 @@ class MemoryRuntime:
     def pending_turns(self) -> List[Dict]:
         return self.state.list_pending_turns()
 
+    def memory_os_snapshot(self) -> Dict[str, Any]:
+        memories = self.episodic.list_memories()
+        layer_counts: Dict[str, int] = {
+            "short_term": len(self.recent_history(max_messages=None) or []),
+            "mid_term": len(self.state.list_summaries()),
+            "long_term": 0,
+            "graph": len(self.knowledge.list_facts(active_only=False)),
+            "contradiction_graph": 0,
+            "reflection_notes": 0,
+        }
+        status_counts: Dict[str, int] = {}
+        for memory in memories:
+            layer = memory.get("memory_layer") or infer_memory_layer(
+                memory.get("memory_type", "episodic"),
+                memory.get("source", "conversation"),
+                memory.get("metadata", {}),
+                memory.get("tags", []),
+            )
+            layer_counts[layer] = layer_counts.get(layer, 0) + 1
+            status = memory.get("status", "active")
+            status_counts[status] = status_counts.get(status, 0) + 1
+            if memory.get("contradicts"):
+                layer_counts["contradiction_graph"] = layer_counts.get("contradiction_graph", 0) + len(memory.get("contradicts", []))
+        return {
+            "layers": layer_counts,
+            "memory_status": status_counts,
+            "pending_turn_count": len(self.pending_turns()),
+        }
+
     @staticmethod
     def _dedupe_ranked_lines(items: List[Dict], text_key: str, score_key: str, limit: int) -> List[str]:
         ranked = sorted(items, key=lambda item: item.get(score_key, 0.0), reverse=True)
@@ -1291,6 +1789,20 @@ class MemoryRuntime:
             min_score=0.16,
             categories=["episodic"],
         )
+        stable_long_term_hits = self.episodic.search(
+            query=query,
+            top_k=4,
+            min_score=0.12,
+            categories=["preference", "relationship", "boundary"],
+            memory_layers=["long_term"],
+        )
+        reflection_hits = self.episodic.search(
+            query=query,
+            top_k=3,
+            min_score=0.10,
+            categories=["summary"],
+            memory_layers=["reflection_notes"],
+        )
         user_fact_hits = self.knowledge.search(
             query=query,
             top_k=6,
@@ -1317,6 +1829,27 @@ class MemoryRuntime:
             score_key="_context_score",
             limit=4,
         )
+        mid_term_lines = self._dedupe_ranked_lines(
+            [
+                {**dict(item), "_context_score": item.get("_score", 0.0)}
+                for item in summary_hits
+            ],
+            text_key="content",
+            score_key="_context_score",
+            limit=2,
+        )
+        long_term_lines = self._dedupe_ranked_lines(
+            stable_long_term_hits,
+            text_key="content",
+            score_key="_final_score",
+            limit=3,
+        )
+        reflection_lines = self._dedupe_ranked_lines(
+            reflection_hits,
+            text_key="content",
+            score_key="_final_score",
+            limit=2,
+        )
 
         profile_lines = self.profile.render_context(query=query, max_items_per_slot=1, max_total=3)
         if not profile_lines:
@@ -1333,10 +1866,26 @@ class MemoryRuntime:
                 if item.get("subject") != self.user_subject
             ]
 
+        contradiction_lines = []
+        for memory in self.episodic.list_memories():
+            if memory.get("status") != "contradicted":
+                continue
+            if lexical_score(query, memory.get("content", "")) < 0.08:
+                continue
+            contradiction_lines.append(
+                f"Memory #{memory.get('id')} is contradicted/stale: {compact_text(memory.get('content', ''), 72)}"
+            )
+            if len(contradiction_lines) >= 2:
+                break
+
         return MemoryContextPacket(
+            mid_term_lines=mid_term_lines,
+            long_term_lines=long_term_lines,
+            reflection_lines=reflection_lines,
             profile_lines=profile_lines,
             episodic_lines=episodic_lines,
             knowledge_lines=knowledge_lines,
+            contradiction_lines=contradiction_lines,
         )
 
     def record_turn(self, user_text: str, assistant_text: str):
@@ -1375,13 +1924,149 @@ class MemoryRuntime:
             "reason": reason,
         }
 
+    def _review_contradiction_links(self) -> Dict[str, Any]:
+        memories = self.episodic.list_memories()
+        by_id = {int(memory.get("id", 0)): memory for memory in memories if memory.get("id") is not None}
+        reviewed = []
+        for memory in memories:
+            source_id = int(memory.get("id", 0))
+            for target_id in normalize_memory_refs(memory.get("contradicts", [])):
+                target = by_id.get(target_id)
+                if target is None or target.get("status", "active") != "active":
+                    continue
+                if is_protected_character_memory(target):
+                    continue
+                self.episodic.update_memory(
+                    target_id,
+                    status="contradicted",
+                    confidence=min(float(target.get("confidence", 0.65)), 0.42),
+                    valid_until=target.get("valid_until") or now_iso(),
+                    reason=append_reason(
+                        target.get("reason", ""),
+                        f"Reflective contradiction review: contradicted by memory #{source_id}.",
+                    ),
+                    evidence=append_unique_texts(
+                        target.get("evidence"),
+                        [f"contradicted_by:{source_id}", "maintenance:contradiction_review"],
+                    ),
+                    metadata={"reflective_contradicted_by": source_id},
+                )
+                reviewed.append({"old_memory_id": target_id, "new_memory_id": source_id})
+        return {"reviewed_count": len(reviewed), "links": reviewed}
+
+    def _apply_decay_policy(self) -> Dict[str, Any]:
+        updates = []
+        reference_ts = now_ts()
+        for memory in list(self.episodic.list_memories()):
+            update = memory_decay_update(memory, reference_ts=reference_ts)
+            if not update:
+                continue
+            updated = self.episodic.update_memory(int(memory["id"]), **update)
+            if updated:
+                updates.append({
+                    "memory_id": updated["id"],
+                    "status": updated.get("status"),
+                    "confidence": updated.get("confidence"),
+                })
+        return {"updated_count": len(updates), "updates": updates}
+
+    def _candidate_reflection_memories(self) -> List[Dict]:
+        candidates = []
+        for memory in self.episodic.list_memories():
+            if memory.get("status", "active") != "active":
+                continue
+            if is_protected_character_memory(memory):
+                continue
+            if memory.get("memory_type") == "summary" or "reflection" in memory.get("tags", []):
+                continue
+            candidates.append(memory)
+        candidates.sort(
+            key=lambda item: (
+                int(item.get("importance", 3)),
+                float(item.get("confidence", 0.65)),
+                int(item.get("timestamp", 0)),
+            ),
+            reverse=True,
+        )
+        return candidates
+
+    def _create_reflection_summary(self) -> Dict[str, Any]:
+        candidates = self._candidate_reflection_memories()
+        if len(candidates) < REFLECTION_MIN_ACTIVE_MEMORIES:
+            return {"created": False, "reason": "not_enough_active_memories"}
+
+        selected = candidates[:REFLECTION_MAX_LINKED_MEMORIES]
+        signature = reflection_signature(selected)
+        for memory in self.episodic.list_memories():
+            metadata = memory.get("metadata", {})
+            if isinstance(metadata, dict) and metadata.get("reflection_signature") == signature:
+                return {"created": False, "reason": "reflection_already_exists", "signature": signature}
+
+        tag_counts: Dict[str, int] = {}
+        for memory in selected:
+            for tag in memory.get("tags", []):
+                tag = str(tag).strip()
+                if tag and tag not in {"reflection", "relationship_summary"}:
+                    tag_counts[tag] = tag_counts.get(tag, 0) + 1
+        top_tags = [
+            tag for tag, _ in sorted(tag_counts.items(), key=lambda item: (-item[1], item[0]))[:5]
+        ]
+        linked_ids = [int(memory["id"]) for memory in selected]
+        snippets = [
+            f"#{memory['id']} {compact_text(memory.get('content', ''), 56)}"
+            for memory in selected[:4]
+        ]
+        theme = ", ".join(top_tags) if top_tags else "relationship and user context"
+        content = (
+            "Reflective relationship summary: recent durable memories cluster around "
+            f"{theme}. Key evidence: {' | '.join(snippets)}. Treat this as relationship/user context, "
+            "not character canon."
+        )
+        added = self.episodic.add_memory(
+            content=content,
+            tags=["reflection", "relationship_summary"] + top_tags,
+            importance=3,
+            category="summary",
+            source="reflection",
+            metadata={
+                "memory_type": "summary",
+                "scope": "relationship_context",
+                "confidence": 0.72,
+                "reason": "Reflective memory maintenance merged scattered durable memories into a higher-level relationship note.",
+                "evidence": [f"memory:{memory_id}" for memory_id in linked_ids],
+                "links": linked_ids,
+                "reflection_signature": signature,
+            },
+        )
+        if not added:
+            return {"created": False, "reason": "duplicate_reflection_content", "signature": signature}
+        return {
+            "created": True,
+            "memory_id": added["id"],
+            "linked_memory_ids": linked_ids,
+            "signature": signature,
+        }
+
+    def run_memory_maintenance(self, reason: str = "manual_consolidation") -> Dict[str, Any]:
+        contradiction_review = self._review_contradiction_links()
+        decay_review = self._apply_decay_policy()
+        reflection = self._create_reflection_summary()
+        return {
+            "reason": reason,
+            "contradiction_review": contradiction_review,
+            "decay_review": decay_review,
+            "reflection": reflection,
+        }
+
     def consolidate_pending(self) -> Dict[str, Any]:
         pending_turns = self.pending_turns()
         if not pending_turns:
+            maintenance = self.run_memory_maintenance(reason="no_pending_consolidation")
             result = {
                 "status": "skipped",
                 "reason": "no_pending_turns",
                 "write_meta": {"mode": "deferred_consolidation"},
+                "memory_maintenance": maintenance,
             }
             self.last_write_plan = result
             return result
@@ -1410,15 +2095,88 @@ class MemoryRuntime:
                 fact_type=fact.get("fact_type", "fact"),
             )
 
+        auto_contradictions: List[Dict[str, Any]] = []
         for item in write_plan["episodic_candidates"]:
-            self.episodic.add_memory(
+            metadata = item.get("metadata", {})
+            if not isinstance(metadata, dict):
+                metadata = {}
+            metadata = dict(metadata)
+            category = item.get("category", "episodic")
+            if item.get("reason") and not metadata.get("reason"):
+                metadata["reason"] = item["reason"]
+            if "confidence" not in metadata:
+                metadata["confidence"] = item.get("confidence", metadata.get("confidence", 0.65))
+
+            contradiction_hits = []
+            if category != "character_fact" and metadata.get("scope") != "character_canon":
+                contradiction_hits = detect_memory_contradictions(
+                    item["content"],
+                    self.episodic.list_memories(),
+                )
+            if contradiction_hits:
+                existing_refs = normalize_memory_refs(metadata.get("contradicts", []))
+                hit_refs = [hit["memory_id"] for hit in contradiction_hits if hit.get("memory_id")]
+                metadata["contradicts"] = normalize_memory_refs(existing_refs + hit_refs)
+                metadata["reason"] = append_reason(
+                    metadata.get("reason", ""),
+                    "Auto contradiction detection linked this memory to earlier active memories.",
+                )
+                metadata["evidence"] = append_unique_texts(
+                    metadata.get("evidence"),
+                    [evidence for hit in contradiction_hits for evidence in hit.get("evidence", [])],
+                )
+                metadata["auto_contradiction_detection"] = [
+                    {
+                        "memory_id": hit["memory_id"],
+                        "score": hit["score"],
+                        "reason": hit["reason"],
+                    }
+                    for hit in contradiction_hits
+                ]
+
+            added_memory = self.episodic.add_memory(
                 content=item["content"],
                 tags=item.get("tags", []),
                 importance=item.get("importance", 3),
-                metadata=item.get("metadata", {}),
-                category=item.get("category", "episodic"),
+                metadata=metadata,
+                category=category,
                 source="consolidation",
             )
+            if not added_memory or not contradiction_hits:
+                continue
+
+            added_id = int(added_memory["id"])
+            for hit in contradiction_hits:
+                old_memory = hit["memory"]
+                old_reason = append_reason(
+                    old_memory.get("reason", ""),
+                    f"Auto contradiction detection: contradicted by memory #{added_id}.",
+                )
+                old_evidence = append_unique_texts(
+                    old_memory.get("evidence"),
+                    [f"contradicted_by:{added_id}", f"auto_contradiction_score:{hit['score']}"],
+                )
+                self.episodic.update_memory(
+                    hit["memory_id"],
+                    status="contradicted",
+                    confidence=min(float(old_memory.get("confidence", 0.65)), hit["confidence"]),
+                    reason=old_reason,
+                    evidence=old_evidence,
+                    metadata={
+                        "auto_contradicted_by": added_id,
+                        "auto_contradiction_score": hit["score"],
+                    },
+                )
+                auto_contradictions.append({
+                    "new_memory_id": added_id,
+                    "old_memory_id": hit["memory_id"],
+                    "score": hit["score"],
+                    "reason": hit["reason"],
+                })
+
+        write_plan["memory_contradictions"] = auto_contradictions
+        write_plan["write_meta"]["auto_contradiction_count"] = len(auto_contradictions)
+        write_plan["memory_maintenance"] = self.run_memory_maintenance(reason="post_consolidation")
 
         self.state.clear_pending_turns()
         return write_plan

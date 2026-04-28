@@ -11,8 +11,14 @@ set "PYTHON_CMD="
 
 echo [RoleWeaver] Working directory: %CD%
 
+if exist "runtime\Scripts\python.exe" set "PYTHON_CMD=runtime\Scripts\python.exe"
+
+if not defined PYTHON_CMD (
+  if exist ".venv\Scripts\python.exe" set "PYTHON_CMD=.venv\Scripts\python.exe"
+)
+
 py -3 --version >nul 2>nul
-if not errorlevel 1 set "PYTHON_CMD=py -3"
+if not errorlevel 1 if not defined PYTHON_CMD set "PYTHON_CMD=py -3"
 
 if not defined PYTHON_CMD (
   python --version >nul 2>nul
@@ -90,6 +96,7 @@ if not "%ROLEWEAVER_PORT%"=="%ROLEWEAVER_DEFAULT_PORT%" (
 start "" /min powershell -NoProfile -ExecutionPolicy Bypass -Command "$hostName='%ROLEWEAVER_HOST%'; $port=%ROLEWEAVER_PORT%; $deadline=(Get-Date).AddSeconds(240); while ((Get-Date) -lt $deadline) { try { $client=New-Object Net.Sockets.TcpClient; $async=$client.BeginConnect($hostName,$port,$null,$null); if ($async.AsyncWaitHandle.WaitOne(1000,$false)) { $client.EndConnect($async); $client.Close(); Start-Process ('http://{0}:{1}/' -f $hostName,$port); exit 0 }; $client.Close() } catch { Start-Sleep -Milliseconds 700 } }; exit 1"
 
 echo [RoleWeaver] Starting API and web frontend...
+echo [RoleWeaver] Python: %PYTHON_CMD%
 echo [RoleWeaver] Open http://%ROLEWEAVER_HOST%:%ROLEWEAVER_PORT%/ if the browser does not open automatically.
 echo [RoleWeaver] Press Ctrl+C in this window to stop the server.
 echo.

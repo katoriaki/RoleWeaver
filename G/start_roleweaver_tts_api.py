@@ -1,4 +1,5 @@
 import os
+import importlib.util
 import subprocess
 import sys
 from pathlib import Path
@@ -26,8 +27,12 @@ def main() -> int:
         return 0
 
     env = os.environ.copy()
+    env.pop("PYTHONPATH", None)
+    env.pop("PYTHONHOME", None)
     env.setdefault("PYTHONUTF8", "1")
     env.setdefault("language", "zh_CN")
+    env["GPT_SOVITS_HOME"] = str(ROOT)
+    config_spec = importlib.util.spec_from_file_location("config", ROOT / "config.py")
 
     cmd = [
         str(PYTHON),
@@ -50,6 +55,7 @@ def main() -> int:
     print(f"[RoleWeaver TTS] Python: {PYTHON}")
     print(f"[RoleWeaver TTS] SoVITS: {SOVITS}")
     print(f"[RoleWeaver TTS] GPT: {GPT}")
+    print(f"[RoleWeaver TTS] Config: {config_spec.origin if config_spec else ROOT / 'config.py'}")
     print("[RoleWeaver TTS] API: http://127.0.0.1:9880/")
     print("[RoleWeaver TTS] Press Ctrl+C to stop.")
     return subprocess.call(cmd, cwd=ROOT, env=env)

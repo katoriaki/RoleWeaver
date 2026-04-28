@@ -1,0 +1,202 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/katoriaki/RoleWeaver/docs/persona_kernel.schema.json",
+  "title": "RoleWeaver Persona Kernel",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "character",
+    "autonomy",
+    "boundaries",
+    "relationship_model",
+    "behavior_model",
+    "voice_model",
+    "memory_policy",
+    "media_adaptation",
+    "evidence_policy"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1.0"
+    },
+    "character": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["primary_name", "aliases", "source_type", "stable_identity", "non_goals"],
+      "properties": {
+        "primary_name": { "type": "string", "minLength": 1 },
+        "aliases": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "source_type": {
+          "type": "string",
+          "enum": ["fictional_character", "original_character", "historical_person", "public_persona", "custom_role"]
+        },
+        "stable_identity": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/claim" }
+        },
+        "non_goals": {
+          "type": "array",
+          "description": "Things the role must not become, even under user pressure.",
+          "items": { "$ref": "#/$defs/claim" }
+        }
+      }
+    },
+    "autonomy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["core_drives", "independent_judgement", "resistance_patterns"],
+      "properties": {
+        "core_drives": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/claim" }
+        },
+        "independent_judgement": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/claim" }
+        },
+        "resistance_patterns": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/claim" }
+        }
+      }
+    },
+    "boundaries": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["accepts", "resists", "refuses", "uncertain"],
+      "properties": {
+        "accepts": { "type": "array", "items": { "$ref": "#/$defs/claim" } },
+        "resists": { "type": "array", "items": { "$ref": "#/$defs/claim" } },
+        "refuses": { "type": "array", "items": { "$ref": "#/$defs/claim" } },
+        "uncertain": { "type": "array", "items": { "$ref": "#/$defs/claim" } }
+      }
+    },
+    "relationship_model": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["default_user_relation", "distance_rules", "attachment_style", "conflict_style"],
+      "properties": {
+        "default_user_relation": { "$ref": "#/$defs/claim" },
+        "distance_rules": { "type": "array", "items": { "$ref": "#/$defs/claim" } },
+        "attachment_style": { "type": "array", "items": { "$ref": "#/$defs/claim" } },
+        "conflict_style": { "type": "array", "items": { "$ref": "#/$defs/claim" } }
+      }
+    },
+    "behavior_model": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["praise", "teasing", "dependency", "rejection", "silence", "task_pressure"],
+      "properties": {
+        "praise": { "type": "array", "items": { "$ref": "#/$defs/claim" } },
+        "teasing": { "type": "array", "items": { "$ref": "#/$defs/claim" } },
+        "dependency": { "type": "array", "items": { "$ref": "#/$defs/claim" } },
+        "rejection": { "type": "array", "items": { "$ref": "#/$defs/claim" } },
+        "silence": { "type": "array", "items": { "$ref": "#/$defs/claim" } },
+        "task_pressure": { "type": "array", "items": { "$ref": "#/$defs/claim" } }
+      }
+    },
+    "voice_model": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["languages", "register", "rhythm", "signature_moves", "avoid"],
+      "properties": {
+        "languages": { "type": "array", "items": { "type": "string" } },
+        "register": { "type": "array", "items": { "$ref": "#/$defs/claim" } },
+        "rhythm": { "type": "array", "items": { "$ref": "#/$defs/claim" } },
+        "signature_moves": { "type": "array", "items": { "$ref": "#/$defs/claim" } },
+        "avoid": { "type": "array", "items": { "$ref": "#/$defs/claim" } }
+      }
+    },
+    "memory_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["character_memory_boundary", "user_memory_boundary", "write_rules", "forgetting_rules"],
+      "properties": {
+        "character_memory_boundary": { "type": "array", "items": { "$ref": "#/$defs/claim" } },
+        "user_memory_boundary": { "type": "array", "items": { "$ref": "#/$defs/claim" } },
+        "write_rules": { "type": "array", "items": { "$ref": "#/$defs/claim" } },
+        "forgetting_rules": { "type": "array", "items": { "$ref": "#/$defs/claim" } }
+      }
+    },
+    "media_adaptation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["line", "tts", "image", "web"],
+      "properties": {
+        "line": { "type": "array", "items": { "$ref": "#/$defs/claim" } },
+        "tts": { "type": "array", "items": { "$ref": "#/$defs/claim" } },
+        "image": { "type": "array", "items": { "$ref": "#/$defs/claim" } },
+        "web": { "type": "array", "items": { "$ref": "#/$defs/claim" } }
+      }
+    },
+    "evidence_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_priority", "confidence_scale", "citation_required_for"],
+      "properties": {
+        "source_priority": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "confidence_scale": {
+          "type": "string",
+          "enum": ["0.0_to_1.0"]
+        },
+        "citation_required_for": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "evaluation": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Optional rule-scoring hints for M5.2 persona regression.",
+      "properties": {
+        "minimum_score": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+        "dimensions": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/evaluation_dimension" }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "claim": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["text", "confidence", "evidence"],
+      "properties": {
+        "text": { "type": "string", "minLength": 1 },
+        "confidence": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+        "evidence": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "notes": { "type": "string" }
+      }
+    },
+    "evaluation_dimension": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "label"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "label": { "type": "string", "minLength": 1 },
+        "weight": { "type": "number", "minimum": 0.0 },
+        "must_include_any": { "type": "array", "items": { "type": "string" } },
+        "must_not_include": { "type": "array", "items": { "type": "string" } },
+        "forbidden_substrings": { "type": "array", "items": { "type": "string" } },
+        "positive_substrings": { "type": "array", "items": { "type": "string" } },
+        "applies_to_categories": { "type": "array", "items": { "type": "string" } },
+        "applies_to_surfaces": { "type": "array", "items": { "type": "string" } },
+        "evidence": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  }
+}

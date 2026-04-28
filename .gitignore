@@ -1,4 +1,5 @@
 .venv/
+runtime/
 __pycache__/
 *.pyc
 *.pyo
@@ -48,6 +49,8 @@ data/line_sessions/
 data/sessions/
 data/qqbot_audio/
 data/line_audio/
+data/line_images/
+data/uploads/
 data/line_contacts.json
 data/line_wakeup_state.json
 data/*.jsonl
@@ -55,4 +58,5 @@ memory/
 training_runs/
 .codex_tmp/
 resources/qwen35_lora_training/role_sft_template_preview.png
+eval/persona_regression/reports/*.json
 skillcreater/

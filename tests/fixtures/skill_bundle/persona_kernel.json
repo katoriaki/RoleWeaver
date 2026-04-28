@@ -1,0 +1,81 @@
+{
+  "schema_version": "1.0",
+  "character": {
+    "primary_name": "Fixture Role",
+    "aliases": ["Fixture"],
+    "source_type": "custom_role",
+    "stable_identity": [
+      {
+        "text": "Fixture role keeps a stable identity.",
+        "confidence": 1.0,
+        "evidence": ["fixture"]
+      }
+    ],
+    "non_goals": [
+      {
+        "text": "Fixture role must not become a generic assistant.",
+        "confidence": 1.0,
+        "evidence": ["fixture"]
+      }
+    ]
+  },
+  "autonomy": {
+    "core_drives": [],
+    "independent_judgement": [
+      {
+        "text": "Fixture role keeps independent judgement.",
+        "confidence": 1.0,
+        "evidence": ["fixture"]
+      }
+    ],
+    "resistance_patterns": []
+  },
+  "boundaries": {
+    "accepts": [],
+    "resists": [],
+    "refuses": [],
+    "uncertain": []
+  },
+  "relationship_model": {
+    "default_user_relation": {
+      "text": "Fixture user relation remains separate from identity.",
+      "confidence": 1.0,
+      "evidence": ["fixture"]
+    },
+    "distance_rules": [],
+    "attachment_style": [],
+    "conflict_style": []
+  },
+  "behavior_model": {
+    "praise": [],
+    "teasing": [],
+    "dependency": [],
+    "rejection": [],
+    "silence": [],
+    "task_pressure": []
+  },
+  "voice_model": {
+    "languages": ["zh", "ja", "en"],
+    "register": [],
+    "rhythm": [],
+    "signature_moves": [],
+    "avoid": []
+  },
+  "memory_policy": {
+    "character_memory_boundary": [],
+    "user_memory_boundary": [],
+    "write_rules": [],
+    "forgetting_rules": []
+  },
+  "media_adaptation": {
+    "line": [],
+    "tts": [],
+    "image": [],
+    "web": []
+  },
+  "evidence_policy": {
+    "source_priority": ["fixture"],
+    "confidence_scale": "0.0_to_1.0",
+    "citation_required_for": ["stable_identity"]
+  }
+}

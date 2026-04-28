@@ -71,6 +71,8 @@ ROLEWEAVER_LINE_HOST=0.0.0.0
 ROLEWEAVER_LINE_PORT=8010
 ROLEWEAVER_SESSION_ROOT=
 ROLEWEAVER_LINE_DEBUG_ERRORS=0
+ROLEWEAVER_LINE_MAX_NEW_TOKENS=192
+ROLEWEAVER_CUDA_EMPTY_CACHE_AFTER_GENERATE=1
 ROLEWEAVER_IDLE_CONSOLIDATION_SECONDS=600
 ```
 
@@ -105,6 +107,20 @@ Send these messages to the official account:
 - `/wake off`: unsubscribe from the daily wake-up push
 
 Any other text message is sent to the current RoleWeaver role.
+
+If LINE replies are being cut off, increase:
+
+```dotenv
+ROLEWEAVER_LINE_MAX_NEW_TOKENS=192
+```
+
+The default is `192`; values are clamped between `16` and `4096`.
+
+For a long-running local GPU bot, keep this enabled unless you are chasing maximum speed:
+
+```dotenv
+ROLEWEAVER_CUDA_EMPTY_CACHE_AFTER_GENERATE=1
+```
 
 ## Daily Wake-Up Push
 
@@ -160,11 +176,43 @@ Use the same public base URL as the webhook URL, but without `/callback`.
 
 `ROLEWEAVER_REPLY_VOICE=1` makes normal chat replies voice-first. Built-in commands such as `/ping`, `/help`, `/status`, `/wake on`, and `/wake off` remain text so they are easy to debug.
 
+### Daytime Text-Only Window
+
+To avoid generating voice during work or school hours, enable the text-only window:
+
+```dotenv
+ROLEWEAVER_REPLY_VOICE=1
+ROLEWEAVER_VOICE_TEXT_ONLY_WINDOW_ENABLED=1
+ROLEWEAVER_VOICE_TEXT_ONLY_START=08:00
+ROLEWEAVER_VOICE_TEXT_ONLY_END=17:30
+ROLEWEAVER_VOICE_TEXT_ONLY_TIMEZONE=Asia/Tokyo
+```
+
+Between `08:00` and `17:30`, normal chat replies are text only. If the user explicitly asks for voice in Chinese, Japanese, or English, the bot synthesizes voice for that one reply only.
+
+## Image Messages
+
+If the configured base model is a native vision model such as Qwen-VL/Qwen3-VL, LINE image messages can be routed into the same RoleWeaver memory session.
+
+When a user sends an image, the bot downloads the LINE message content into:
+
+```text
+data/line_images/<line-session-id>/
+```
+
+Then it calls `RoleChatService.chat_once_with_image()` with this prompt:
+
+```dotenv
+ROLEWEAVER_LINE_IMAGE_PROMPT=Look at this image and reply briefly and naturally in the current role, like a LINE chat.
+```
+
+You can replace that prompt in `line/.env`. Text-only models will still handle normal messages, but image messages require a model directory with a usable vision processor, for example a `preprocessor_config.json` backed by a compatible Transformers version.
+
 ## Current Limits
 
-- Text messages only.
+- Image messages do not support captions yet; LINE sends the image event separately, so RoleWeaver uses `ROLEWEAVER_LINE_IMAGE_PROMPT`.
 - Inference is still synchronous, so very slow model replies can approach LINE's reply-token time limit.
-- Voice reply, push message, loading animation, and async queue are planned for the next milestone.
+- Loading animation and async queue are planned for a later milestone.
 
 ## 中文说明
 
@@ -236,6 +284,20 @@ ROLEWEAVER_TTS_TEXT_LANGUAGE=ja
 `ROLEWEAVER_PUBLIC_BASE_URL` 使用和 Webhook 同一个 Cloudflare/ngrok 地址，但不要加 `/callback`。
 
 `ROLEWEAVER_REPLY_VOICE=1` 会让普通聊天回复优先走语音；`/ping`、`/help`、`/status`、`/wake on` 这类调试命令仍然用文字，方便排错。
+
+### 白天文字模式
+
+如果想在每天 08:00 到 17:30 默认不合成语音，只在用户明确要求时合成一次，设置：
+
+```dotenv
+ROLEWEAVER_REPLY_VOICE=1
+ROLEWEAVER_VOICE_TEXT_ONLY_WINDOW_ENABLED=1
+ROLEWEAVER_VOICE_TEXT_ONLY_START=08:00
+ROLEWEAVER_VOICE_TEXT_ONLY_END=17:30
+ROLEWEAVER_VOICE_TEXT_ONLY_TIMEZONE=Asia/Tokyo
+```
+
+这段时间内，普通回复走文字；用户用中文、日语或英语明确要求“语音/音声/voice/audio”等时，只为当前这一轮合成一次语音。
 
 本地服务默认端口是 `8010`，健康检查是：
 

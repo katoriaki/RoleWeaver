@@ -272,6 +272,244 @@ class MemoryRuntimeTestCase(unittest.TestCase):
         self.assertIn("这周你在推进 LINE 机器人接入。", memory_contents)
         self.assertNotIn("美铃承诺：我会慢慢陪着你做。", memory_contents)
 
+    def test_consolidation_auto_marks_contradicted_memory(self):
+        judged_runtime = memory_runtime.MemoryRuntime(
+            memory_file=str(Path(self.temp_dir.name) / "contradiction_memories.json"),
+            index_file=str(Path(self.temp_dir.name) / "contradiction_memories.faiss"),
+            profile_file=str(Path(self.temp_dir.name) / "contradiction_profile.json"),
+            state_file=str(Path(self.temp_dir.name) / "contradiction_state.json"),
+            knowledge_file=str(Path(self.temp_dir.name) / "contradiction_kg.json"),
+            assistant_label="Misuzu",
+            memory_write_judge=lambda payload: {
+                "profile_candidates": [],
+                "graph_facts": [],
+                "episodic_candidates": [
+                    {
+                        "content": "Correction: I was wrong before. I do not like curry now; I like sushi.",
+                        "tags": ["food"],
+                        "importance": 4,
+                        "confidence": 0.9,
+                        "category": "episodic",
+                        "metadata": {"evidence": ["turn:2"]},
+                    }
+                ],
+            },
+        )
+        old_memory = judged_runtime.episodic.add_memory(
+            content="The user likes curry.",
+            tags=["food"],
+            importance=4,
+            category="episodic",
+            source="conversation",
+            metadata={"confidence": 0.86, "evidence": ["turn:1"]},
+        )
+
+        judged_runtime.record_turn(
+            "Correction: I was wrong before. I do not like curry now; I like sushi.",
+            "I will remember that.",
+        )
+        result = judged_runtime.consolidate_pending()
+
+        memories = judged_runtime.episodic.list_memories()
+        old = next(item for item in memories if item["id"] == old_memory["id"])
+        new = next(item for item in memories if item["id"] != old_memory["id"])
+
+        self.assertEqual(old["status"], "contradicted")
+        self.assertLess(old["confidence"], 0.86)
+        self.assertIn(old["id"], new["contradicts"])
+        self.assertEqual(result["write_meta"]["auto_contradiction_count"], 1)
+        self.assertEqual(result["memory_contradictions"][0]["old_memory_id"], old["id"])
+
+    def test_auto_contradiction_does_not_downgrade_character_canon(self):
+        judged_runtime = memory_runtime.MemoryRuntime(
+            memory_file=str(Path(self.temp_dir.name) / "canon_contradiction_memories.json"),
+            index_file=str(Path(self.temp_dir.name) / "canon_contradiction_memories.faiss"),
+            profile_file=str(Path(self.temp_dir.name) / "canon_contradiction_profile.json"),
+            state_file=str(Path(self.temp_dir.name) / "canon_contradiction_state.json"),
+            knowledge_file=str(Path(self.temp_dir.name) / "canon_contradiction_kg.json"),
+            assistant_label="Misuzu",
+            memory_write_judge=lambda payload: {
+                "profile_candidates": [],
+                "graph_facts": [],
+                "episodic_candidates": [
+                    {
+                        "content": "Correction: Misuzu is not an idol anymore.",
+                        "tags": ["character"],
+                        "importance": 4,
+                        "confidence": 0.9,
+                        "category": "episodic",
+                    }
+                ],
+            },
+        )
+        canon_memory = judged_runtime.episodic.add_memory(
+            content="Misuzu is an idol.",
+            tags=["character"],
+            importance=5,
+            category="character_fact",
+            source="skill",
+            metadata={"memory_type": "character_fact", "scope": "character_canon", "confidence": 1.0},
+        )
+
+        judged_runtime.record_turn("Correction: Misuzu is not an idol anymore.", "No.")
+        result = judged_runtime.consolidate_pending()
+
+        canon = next(item for item in judged_runtime.episodic.list_memories() if item["id"] == canon_memory["id"])
+        self.assertEqual(canon["status"], "active")
+        self.assertEqual(result["write_meta"]["auto_contradiction_count"], 0)
+
+    def test_reflective_maintenance_creates_relationship_summary(self):
+        first = self.runtime.episodic.add_memory(
+            content="The user is integrating RoleWeaver with LINE.",
+            tags=["project", "line"],
+            importance=4,
+            category="episodic",
+            metadata={"confidence": 0.82},
+        )
+        second = self.runtime.episodic.add_memory(
+            content="The user prefers concise replies during work hours.",
+            tags=["preference", "line"],
+            importance=4,
+            category="preference",
+            metadata={"confidence": 0.86, "memory_type": "preference"},
+        )
+        third = self.runtime.episodic.add_memory(
+            content="Misuzu should keep character autonomy even when adapting to LINE.",
+            tags=["relationship", "persona"],
+            importance=5,
+            category="relationship",
+            metadata={"confidence": 0.9, "memory_type": "relationship"},
+        )
+
+        result = self.runtime.run_memory_maintenance(reason="test_reflection")
+
+        self.assertTrue(result["reflection"]["created"])
+        summary = next(
+            memory for memory in self.runtime.episodic.list_memories()
+            if memory["id"] == result["reflection"]["memory_id"]
+        )
+        self.assertEqual(summary["memory_type"], "summary")
+        self.assertIn("reflection", summary["tags"])
+        self.assertIn(first["id"], summary["metadata"]["links"])
+        self.assertIn(second["id"], summary["metadata"]["links"])
+        self.assertIn(third["id"], summary["metadata"]["links"])
+
+    def test_memory_layers_are_inferred_and_searchable(self):
+        preference = self.runtime.episodic.add_memory(
+            content="The user prefers concise replies during work hours.",
+            tags=["preference"],
+            importance=4,
+            category="preference",
+            metadata={"confidence": 0.9, "memory_type": "preference"},
+        )
+        summary = self.runtime.episodic.add_memory(
+            content="Reflective relationship summary: work-hour replies should stay concise.",
+            tags=["reflection"],
+            importance=3,
+            category="summary",
+            source="reflection",
+            metadata={"confidence": 0.8, "memory_type": "summary"},
+        )
+
+        self.assertEqual(preference["memory_layer"], "long_term")
+        self.assertEqual(summary["memory_layer"], "reflection_notes")
+
+        long_hits = self.runtime.episodic.search(
+            "work hour concise replies",
+            top_k=5,
+            min_score=0.01,
+            memory_layers=["long_term"],
+        )
+        reflection_hits = self.runtime.episodic.search(
+            "work hour concise replies",
+            top_k=5,
+            min_score=0.01,
+            memory_layers=["reflection_notes"],
+        )
+
+        self.assertTrue(any(item["id"] == preference["id"] for item in long_hits))
+        self.assertFalse(any(item["id"] == summary["id"] for item in long_hits))
+        self.assertTrue(any(item["id"] == summary["id"] for item in reflection_hits))
+
+    def test_memory_os_snapshot_counts_layers_and_contradictions(self):
+        old_memory = self.runtime.episodic.add_memory(
+            content="The user wants voice replies all day.",
+            tags=["voice"],
+            category="preference",
+            metadata={"memory_type": "preference", "confidence": 0.8},
+        )
+        self.runtime.episodic.add_memory(
+            content="The user wants text replies during work hours.",
+            tags=["voice"],
+            category="preference",
+            metadata={"memory_type": "preference", "contradicts": [old_memory["id"]], "confidence": 0.9},
+        )
+
+        snapshot = self.runtime.memory_os_snapshot()
+
+        self.assertGreaterEqual(snapshot["layers"]["long_term"], 2)
+        self.assertEqual(snapshot["layers"]["contradiction_graph"], 1)
+
+    def test_manual_contradiction_review_downgrades_target_memory(self):
+        old_memory = self.runtime.episodic.add_memory(
+            content="The user wants voice replies all day.",
+            tags=["line", "voice"],
+            importance=3,
+            category="preference",
+            metadata={"confidence": 0.8, "memory_type": "preference"},
+        )
+        self.runtime.episodic.add_memory(
+            content="The user wants text replies during work hours unless voice is requested.",
+            tags=["line", "voice"],
+            importance=4,
+            category="preference",
+            metadata={"confidence": 0.86, "memory_type": "preference", "contradicts": [old_memory["id"]]},
+        )
+
+        result = self.runtime.run_memory_maintenance(reason="test_manual_contradiction")
+
+        old = next(memory for memory in self.runtime.episodic.list_memories() if memory["id"] == old_memory["id"])
+        self.assertEqual(old["status"], "contradicted")
+        self.assertEqual(result["contradiction_review"]["reviewed_count"], 1)
+
+    def test_decay_archives_old_low_confidence_episodic_but_preserves_stable_memories(self):
+        weak = self.runtime.episodic.add_memory(
+            content="The user casually mentioned a low-value detail once.",
+            tags=["casual"],
+            importance=1,
+            category="episodic",
+            metadata={"confidence": 0.25},
+        )
+        preference = self.runtime.episodic.add_memory(
+            content="The user prefers concise LINE replies.",
+            tags=["line"],
+            importance=4,
+            category="preference",
+            metadata={"confidence": 0.88, "memory_type": "preference"},
+        )
+        canon = self.runtime.episodic.add_memory(
+            content="Misuzu is an idol.",
+            tags=["character"],
+            importance=5,
+            category="character_fact",
+            source="skill",
+            metadata={"confidence": 1.0, "memory_type": "character_fact", "scope": "character_canon"},
+        )
+
+        old_ts = memory_runtime.now_ts() - 130 * 86400
+        for memory in self.runtime.episodic.memories:
+            if memory["id"] in {weak["id"], preference["id"], canon["id"]}:
+                memory["timestamp"] = old_ts
+        self.runtime.episodic._save_memories()
+
+        result = self.runtime.run_memory_maintenance(reason="test_decay")
+
+        memories = {memory["id"]: memory for memory in self.runtime.episodic.list_memories()}
+        self.assertEqual(memories[weak["id"]]["status"], "archived")
+        self.assertEqual(memories[preference["id"]]["status"], "active")
+        self.assertEqual(memories[canon["id"]]["status"], "active")
+        self.assertEqual(result["decay_review"]["updated_count"], 1)
+
     def test_memory_write_judge_fallbacks_to_rule_plan_on_error(self):
         judged_runtime = memory_runtime.MemoryRuntime(
             memory_file=str(Path(self.temp_dir.name) / "fallback_memories.json"),

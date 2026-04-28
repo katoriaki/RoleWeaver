@@ -14,6 +14,7 @@ os.environ.setdefault("PYTHONUTF8", "1")
 os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
 
 from memory_runtime import MemoryRuntime, now_ts
+from persona_kernel_scorer import PersonaKernelScorer
 from role_config import (
     DEFAULT_IDLE_CONSOLIDATION_SECONDS,
     RoleConfig,
@@ -84,12 +85,16 @@ class RoleChatService:
         self.session_root.mkdir(parents=True, exist_ok=True)
 
         self._tokenizer = None
+        self._processor = None
         self._model = None
+        self._vision_generation_enabled = False
         self._init_lock = threading.Lock()
         self._generate_lock = threading.Lock()
         self._runtime_cache: Dict[str, MemoryRuntime] = {}
         self._torch = None
         self._memory_judge_enabled = True
+        self._persona_scorer = PersonaKernelScorer.from_skill_file(self.config.skill_file)
+        self.last_persona_score: Optional[Dict] = None
         self.idle_consolidation_seconds = normalize_idle_consolidation_seconds(
             self.config.idle_consolidation_seconds
         )
@@ -100,10 +105,14 @@ class RoleChatService:
             with self._generate_lock:
                 model = self._model
                 tokenizer = self._tokenizer
+                processor = self._processor
                 self._model = None
                 self._tokenizer = None
+                self._processor = None
+                self._vision_generation_enabled = False
                 del model
                 del tokenizer
+                del processor
                 gc.collect()
                 if self._torch is not None and getattr(self._torch, "cuda", None):
                     try:
@@ -139,7 +148,9 @@ class RoleChatService:
             "skill_text": self.config.skill_text or "",
             "quantization_mode": self.config.quantization_mode,
             "device_map_mode": self.config.device_map_mode,
+            "model_loader_mode": self.config.model_loader_mode,
             "context_window_tokens": self.config.context_window_tokens,
+            "session_root": str(self.memory_root),
         }
         if extra_settings:
             snapshot.update({k: v for k, v in extra_settings.items() if v is not None})
@@ -191,7 +202,16 @@ class RoleChatService:
 
             try:
                 import torch
-                from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+                from transformers import (
+                    AutoModelForCausalLM,
+                    AutoProcessor,
+                    AutoTokenizer,
+                    BitsAndBytesConfig,
+                )
+                try:
+                    from transformers import AutoModelForImageTextToText
+                except ImportError:
+                    AutoModelForImageTextToText = None
             except ModuleNotFoundError as exc:
                 missing = exc.name or "unknown"
                 raise RuntimeError(
@@ -216,6 +236,20 @@ class RoleChatService:
             )
             if tokenizer.pad_token is None:
                 tokenizer.pad_token = tokenizer.eos_token
+
+            processor = None
+            model_loader_mode = (self.config.model_loader_mode or "auto").lower()
+            has_vision_processor = (Path(self.base_model_path) / "preprocessor_config.json").exists()
+            if model_loader_mode in {"auto", "vision"} and has_vision_processor:
+                try:
+                    print("加载 vision processor...")
+                    processor = AutoProcessor.from_pretrained(
+                        self.base_model_path,
+                        trust_remote_code=True,
+                        use_fast=True,
+                    )
+                except Exception as exc:
+                    print(f"警告: vision processor 加载失败，图片输入将不可用: {exc}")
 
             quantization_mode = (self.config.quantization_mode or "4bit").lower()
             device_map_mode = (self.config.device_map_mode or "gpu").lower()
@@ -249,7 +283,28 @@ class RoleChatService:
             else:
                 print("加载 base model without quantization...")
 
-            base_model = AutoModelForCausalLM.from_pretrained(
+            if model_loader_mode == "text":
+                print("模型加载器: text（强制 AutoModelForCausalLM；适合纯文本 LoRA）")
+                vision_generation_enabled = False
+                model_loader = AutoModelForCausalLM
+            elif model_loader_mode == "vision":
+                if processor is None:
+                    raise RuntimeError("model_loader_mode=vision 需要底模目录包含可用的 vision processor。")
+                if AutoModelForImageTextToText is None:
+                    raise RuntimeError("model_loader_mode=vision 需要当前 transformers 支持 AutoModelForImageTextToText。")
+                print("模型加载器: vision（强制 image-text 模型类）")
+                vision_generation_enabled = True
+                model_loader = AutoModelForImageTextToText
+            else:
+                print("模型加载器: auto")
+                vision_generation_enabled = processor is not None and AutoModelForImageTextToText is not None
+                model_loader = AutoModelForImageTextToText if vision_generation_enabled else AutoModelForCausalLM
+            if vision_generation_enabled:
+                print("检测到 vision processor，使用 image-text 模型类加载 base model...")
+            elif processor is not None:
+                print("警告: 当前 transformers 缺少 AutoModelForImageTextToText，图片输入不可用；文本聊天仍可使用。")
+
+            base_model = model_loader.from_pretrained(
                 self.base_model_path,
                 **model_kwargs,
             )
@@ -277,14 +332,19 @@ class RoleChatService:
             model.eval()
 
             self._tokenizer = tokenizer
+            self._processor = processor
             self._model = model
+            self._vision_generation_enabled = vision_generation_enabled
 
     def _session_dir(self, session_id: str) -> Path:
         path = self.session_root / sanitize_session_id(session_id)
         path.mkdir(parents=True, exist_ok=True)
         (path / "short_term").mkdir(exist_ok=True)
+        (path / "mid_term").mkdir(exist_ok=True)
         (path / "long_term").mkdir(exist_ok=True)
         (path / "graph").mkdir(exist_ok=True)
+        (path / "contradiction_graph").mkdir(exist_ok=True)
+        (path / "reflection_notes").mkdir(exist_ok=True)
         return path
 
     def _meta_path(self, session_id: str) -> Path:
@@ -312,7 +372,33 @@ class RoleChatService:
     def _transcript_path(self, session_id: str) -> Path:
         return self._session_dir(session_id) / "short_term" / "transcript.jsonl"
 
-    def _append_transcript_turn(self, session_id: str, user_text: str, assistant_text: str):
+    def _score_persona_response(
+        self,
+        *,
+        user_text: str,
+        assistant_text: str,
+        category: str = "",
+        surface: str = "web",
+    ) -> Optional[Dict]:
+        self.last_persona_score = None
+        if self._persona_scorer is None or not self._persona_scorer.available():
+            return None
+        score = self._persona_scorer.score_response(
+            user_text=user_text,
+            assistant_text=assistant_text,
+            category=category,
+            surface=surface,
+        ).to_dict()
+        self.last_persona_score = score
+        return score
+
+    def _append_transcript_turn(
+        self,
+        session_id: str,
+        user_text: str,
+        assistant_text: str,
+        metadata: Optional[Dict] = None,
+    ):
         path = self._transcript_path(session_id)
         record = {
             "timestamp": now_ts(),
@@ -321,6 +407,8 @@ class RoleChatService:
                 {"role": "assistant", "content": assistant_text},
             ],
         }
+        if metadata:
+            record["metadata"] = metadata
         with path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
@@ -363,6 +451,16 @@ class RoleChatService:
         )
         self._runtime_cache[session_id] = runtime
         return runtime
+
+    def _maybe_empty_cuda_cache_after_generate(self):
+        value = os.getenv("ROLEWEAVER_CUDA_EMPTY_CACHE_AFTER_GENERATE", "1").strip().lower()
+        if value in {"0", "false", "no", "off"}:
+            return
+        if self._torch is not None and getattr(self._torch, "cuda", None):
+            try:
+                self._torch.cuda.empty_cache()
+            except Exception:
+                pass
 
     @staticmethod
     def _extract_json_object(text: str) -> Optional[Dict]:
@@ -433,11 +531,68 @@ class RoleChatService:
         generated_ids = outputs[0][inputs["input_ids"].shape[1]:]
         result = self._tokenizer.decode(generated_ids, skip_special_tokens=False)
         result = self.clean_response(result)
-        return self._extract_json_object(result)
+        parsed = self._extract_json_object(result)
+        del inputs, outputs, generated_ids
+        self._maybe_empty_cuda_cache_after_generate()
+        return parsed
 
     def consolidate_session_memory(self, session_id: str) -> Dict:
         runtime = self._runtime_for_session(session_id)
         return runtime.consolidate_pending()
+
+    def list_session_memories(
+        self,
+        session_id: str,
+        include_inactive: bool = True,
+        status: Optional[str] = None,
+        query: Optional[str] = None,
+    ) -> List[Dict]:
+        runtime = self._runtime_for_session(session_id)
+        if query:
+            memories = runtime.episodic.search(query, top_k=50, min_score=0.0)
+        else:
+            memories = runtime.episodic.list_memories()
+        if not include_inactive:
+            memories = [memory for memory in memories if memory.get("status", "active") == "active"]
+        if status:
+            memories = [memory for memory in memories if memory.get("status", "active") == status]
+        return self._attach_memory_reverse_links(memories, runtime.episodic.list_memories())
+
+    @staticmethod
+    def _attach_memory_reverse_links(memories: List[Dict], all_memories: List[Dict]) -> List[Dict]:
+        reverse: Dict[int, List[int]] = {}
+        for memory in all_memories:
+            source_id = int(memory.get("id", 0) or 0)
+            for target_id in memory.get("contradicts", []) or []:
+                try:
+                    target_id = int(target_id)
+                except (TypeError, ValueError):
+                    continue
+                reverse.setdefault(target_id, [])
+                if source_id and source_id not in reverse[target_id]:
+                    reverse[target_id].append(source_id)
+        enriched = []
+        for memory in memories:
+            item = dict(memory)
+            item["contradicted_by"] = reverse.get(int(item.get("id", 0) or 0), [])
+            enriched.append(item)
+        return enriched
+
+    def update_session_memory(self, session_id: str, memory_id: int, **updates) -> Optional[Dict]:
+        runtime = self._runtime_for_session(session_id)
+        memory = runtime.episodic.update_memory(memory_id, **updates)
+        if memory is None:
+            return None
+        return self._attach_memory_reverse_links([memory], runtime.episodic.list_memories())[0]
+
+    def session_memory_os_snapshot(self, session_id: str) -> Dict:
+        return self._runtime_for_session(session_id).memory_os_snapshot()
+
+    def delete_session_memory(self, session_id: str, memory_id: int) -> bool:
+        runtime = self._runtime_for_session(session_id)
+        before = len(runtime.episodic.list_memories())
+        runtime.episodic.delete_memory(memory_id)
+        return len(runtime.episodic.list_memories()) < before
 
     def _maybe_consolidate_after_idle(self, session_id: str, meta: Dict):
         last_activity_ts = meta.get("last_activity_ts")
@@ -505,6 +660,63 @@ class RoleChatService:
                 tokenize=False,
                 add_generation_prompt=True,
             )
+
+    @staticmethod
+    def _messages_to_vision_messages(messages: List[Dict], image_path: str, user_text: str) -> List[Dict]:
+        vision_messages = []
+        last_user_index = -1
+        for index, message in enumerate(messages):
+            content = message.get("content", "")
+            if isinstance(content, list):
+                normalized_content = content
+            else:
+                normalized_content = [{"type": "text", "text": str(content)}]
+            vision_messages.append({"role": message.get("role", "user"), "content": normalized_content})
+            if message.get("role") == "user":
+                last_user_index = index
+
+        multimodal_content = [
+            {"type": "image", "image": image_path},
+            {"type": "text", "text": user_text},
+        ]
+        if last_user_index >= 0:
+            vision_messages[last_user_index] = {"role": "user", "content": multimodal_content}
+        else:
+            vision_messages.append({"role": "user", "content": multimodal_content})
+        return vision_messages
+
+    def _vision_messages_to_inputs(self, messages: List[Dict], image_path: str):
+        if self._processor is None:
+            raise RuntimeError(
+                "当前模型没有可用的 vision processor，无法读取图片。请确认底模目录包含 preprocessor_config.json，"
+                "并且模型是 Qwen-VL / Qwen3-VL 这类原生视觉模型。"
+            )
+        if not self._vision_generation_enabled:
+            raise RuntimeError(
+                "当前模型是按纯文本模型类加载的，无法接收图片张量。请升级 transformers，"
+                "确保环境支持 AutoModelForImageTextToText，然后重启 RoleWeaver。"
+            )
+        try:
+            from PIL import Image
+        except ModuleNotFoundError as exc:
+            raise RuntimeError("当前 Python 环境缺少 Pillow，无法读取图片。请安装: pip install pillow") from exc
+
+        with Image.open(image_path) as opened_image:
+            image = opened_image.convert("RGB")
+        try:
+            text = self._processor.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=True,
+                enable_thinking=False,
+            )
+        except TypeError:
+            text = self._processor.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=True,
+            )
+        return self._processor(text=[text], images=[image], return_tensors="pt").to(self._model.device)
 
     def _count_prompt_tokens(self, messages: List[Dict]) -> int:
         text = self._messages_to_prompt_text(messages)
@@ -634,9 +846,99 @@ class RoleChatService:
         generated_ids = outputs[0][inputs["input_ids"].shape[1]:]
         result = self._tokenizer.decode(generated_ids, skip_special_tokens=False)
         result = self.clean_response(result)
+        del inputs, outputs, generated_ids
+        self._maybe_empty_cuda_cache_after_generate()
 
+        persona_score = self._score_persona_response(
+            user_text=user_text,
+            assistant_text=result,
+            surface="web",
+        )
         runtime.record_turn(user_text, result)
-        self._append_transcript_turn(session_id, user_text, result)
+        self._append_transcript_turn(
+            session_id,
+            user_text,
+            result,
+            metadata={"persona_score": persona_score} if persona_score else None,
+        )
+        meta["role_mode"] = role_mode
+        meta["last_activity_ts"] = int(time.time())
+        meta["updated_ts"] = int(time.time())
+        if not meta.get("settings_snapshot"):
+            meta["settings_snapshot"] = self._settings_snapshot()
+        self._save_session_meta(session_id, meta)
+        return result
+
+    def chat_once_with_image(
+        self,
+        user_text: str,
+        image_path: str,
+        session_id: str = "default",
+        max_new_tokens: int = 96,
+    ) -> str:
+        self._ensure_model_loaded()
+
+        runtime = self._runtime_for_session(session_id)
+        meta = self._load_session_meta(session_id)
+        self._maybe_consolidate_after_idle(session_id, meta)
+
+        display_user_text = f"[Image: {Path(image_path).name}] {user_text}".strip()
+        cmd_result = runtime.handle_command(user_text)
+        if cmd_result is not None:
+            meta["last_activity_ts"] = int(time.time())
+            self._save_session_meta(session_id, meta)
+            return cmd_result
+        role_mode = bool(meta.get("role_mode", self.config.role_mode_default))
+
+        if self.should_exit_role(user_text):
+            role_mode = False
+        elif self.should_enter_role(user_text):
+            role_mode = True
+
+        messages = self._prepare_messages_with_context_budget(
+            user_text=display_user_text,
+            role_mode=role_mode,
+            runtime=runtime,
+            max_new_tokens=max_new_tokens,
+        )
+        vision_messages = self._messages_to_vision_messages(
+            messages=messages,
+            image_path=image_path,
+            user_text=user_text,
+        )
+        inputs = self._vision_messages_to_inputs(vision_messages, image_path)
+
+        with self._generate_lock:
+            with self._torch.no_grad():
+                outputs = self._model.generate(
+                    **inputs,
+                    max_new_tokens=max_new_tokens,
+                    do_sample=True,
+                    temperature=0.72,
+                    top_p=0.9,
+                    repetition_penalty=1.08,
+                    pad_token_id=self._tokenizer.pad_token_id,
+                    eos_token_id=self._tokenizer.eos_token_id,
+                )
+
+        generated_ids = outputs[0][inputs["input_ids"].shape[1]:]
+        result = self._tokenizer.decode(generated_ids, skip_special_tokens=False)
+        result = self.clean_response(result)
+        del inputs, outputs, generated_ids
+        self._maybe_empty_cuda_cache_after_generate()
+
+        persona_score = self._score_persona_response(
+            user_text=display_user_text,
+            assistant_text=result,
+            surface="image",
+        )
+        runtime.record_turn(display_user_text, result)
+        self._append_transcript_turn(
+            session_id,
+            display_user_text,
+            result,
+            metadata={"persona_score": persona_score} if persona_score else None,
+        )
         meta["role_mode"] = role_mode
         meta["last_activity_ts"] = int(time.time())
         meta["updated_ts"] = int(time.time())

@@ -13,6 +13,9 @@ RoleWeaver 可以把一个底模、一个可选 LoRA adapter、一个可选角�
 - 新增标准训练模板 `resources/qwen35_lora_training/role_sft_template.xlsx`，只需要两列：`user` 和 `assistant`。
 - 新增可编辑会话显示名。内部 `session_id` 继续隐藏，并继续映射原来的 memory 文件夹。
 - 历史会话支持恢复、改名、删除和每会话设置快照。
+- 新增 [RoleWeaver 设计原则](docs/DESIGN_PRINCIPLES.md)，明确人格自主性、记忆边界、媒介适配规则和下一阶段设计路线。
+- 新增第一版 [Persona Kernel schema](docs/PERSONA_KERNEL_SCHEMA.md)，用于结构化、有证据来源的角色定义。
+- 新增 [Memory Item schema](docs/MEMORY_ITEM_SCHEMA.md) 和轻量级 [人格回归测试框架](eval/persona_regression/README.md)。
 
 完整更新公告见 [CHANGELOG.md](CHANGELOG.md)。
 
@@ -24,6 +27,9 @@ RoleWeaver 可以把一个底模、一个可选 LoRA adapter、一个可选角�
 - 支持 `4bit`、`8bit`、`bf16`、`fp16`、不量化加载。
 - 记忆存储在 `memory/`，按照底模、LoRA、skill、会话隔离。
 - 提供 FastAPI API、浏览器前端、CLI 入口和 bot 集成骨架。
+- 遵循明确的设计契约：角色人格自主性优先于角色一致性、长期记忆、任务完成和平台格式适配。详见 [docs/DESIGN_PRINCIPLES.md](docs/DESIGN_PRINCIPLES.md)。
+- 当 `SKILL.md` 旁边存在 `persona_kernel.json` 时会自动加载；普通用户仍然只需要填写一个 `SKILL.md` 路径。
+- 提供早期人格回归测试框架，用于检查角色自主性、媒介适配和记忆边界是否退化。
 
 ## 快速开始
 
@@ -43,6 +49,12 @@ copy roleweaver.config.example.csv roleweaver.config.csv
 - `ui_language`：`zh`、`ja`、`en`
 
 启动 Windows 前端：
+
+```powershell
+setup_runtime.bat
+```
+
+之后 `start_roleweaver.bat` 和 `line/start_line_bot.bat` 会优先使用 `runtime\Scripts\python.exe`。
 
 ```powershell
 start_roleweaver.bat
