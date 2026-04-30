@@ -2,6 +2,14 @@
 
 ## 2026-05-01
 
+### System Design And Memory Evaluation
+
+- Added a RoleWeaver system design and detailed implementation plan in `docs/SYSTEM_DESIGN_AND_DETAILED_PLAN.zh-CN.md`.
+- Added an academic memory benchmark baseline survey and evaluation roadmap in `docs/MEMORY_BENCHMARK_BASELINES.zh-CN.md`.
+- Added `eval/memory_benchmark/run_memory_os_benchmark.py`, an offline smoke benchmark for Memory OS retrieval, contradiction handling, A-Mem-style evolution, abstention, canon protection, forgetting, reinforcement, and reflection.
+- Improved lexical fallback token filtering to avoid spurious English possessive matches in abstention tests.
+- Memory smoke benchmark result: `8/8 = 100.00%`.
+
 ### Shiro A800 Omni LoRA
 
 - Added a remote Qwen3-Omni text-persona LoRA training workflow for Shiro on the A800 server.

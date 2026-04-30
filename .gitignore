@@ -69,4 +69,5 @@ resources/qwen35_lora_training/role_sft_template_preview.png
 resources/shiro_persona_sft/raw/**/*.jsonl
 resources/textbooks/ChinaTextbook/
 eval/persona_regression/reports/*.json
+eval/memory_benchmark/reports/*.json
 skillcreater/

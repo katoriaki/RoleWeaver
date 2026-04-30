@@ -320,6 +320,44 @@ def normalize_for_match(text: str) -> str:
     return text
 
 
+LEXICAL_STOPWORDS = {
+    "a",
+    "an",
+    "and",
+    "are",
+    "as",
+    "at",
+    "be",
+    "by",
+    "for",
+    "from",
+    "how",
+    "i",
+    "in",
+    "is",
+    "it",
+    "me",
+    "my",
+    "of",
+    "on",
+    "or",
+    "s",
+    "the",
+    "their",
+    "to",
+    "user",
+    "what",
+    "when",
+    "where",
+    "which",
+    "who",
+    "why",
+    "with",
+    "you",
+    "your",
+}
+
+
 def text_to_terms(text: str) -> Set[str]:
     text = normalize_for_match(text)
     groups = re.findall(r"[a-z0-9_]+|[\u4e00-\u9fff]+", text)
@@ -332,7 +370,8 @@ def text_to_terms(text: str) -> Set[str]:
                 for i in range(len(group) - 1):
                     terms.add(group[i:i + 2])
         else:
-            terms.add(group)
+            if group not in LEXICAL_STOPWORDS:
+                terms.add(group)
     return {t for t in terms if t}
 
 
@@ -429,6 +468,27 @@ def detect_memory_contradictions(
         if normalize_for_match(old_content) == normalize_for_match(new_content):
             continue
 
+        non_cue_new_terms = text_to_terms(new_content) - {
+            "correction",
+            "correcting",
+            "actually",
+            "wrong",
+            "anymore",
+            "instead",
+            "rather",
+        }
+        non_cue_old_terms = text_to_terms(old_content) - {
+            "correction",
+            "correcting",
+            "actually",
+            "wrong",
+            "anymore",
+            "instead",
+            "rather",
+        }
+        if len(non_cue_new_terms & non_cue_old_terms) < 1:
+            continue
+
         score = lexical_score(new_content, old_content)
         if score < min_score:
             continue
@@ -454,7 +514,7 @@ def detect_related_memory_links(
     new_tags: List[str],
     existing_memories: List[Dict],
     *,
-    min_score: float = 0.10,
+    min_score: float = 0.14,
     max_results: int = 4,
 ) -> List[Dict[str, Any]]:
     new_content = (new_content or "").strip()
@@ -1452,6 +1512,36 @@ class HybridMemoryStore:
             if same_content and same_category:
                 return None
 
+        contradiction_hits: List[Dict[str, Any]] = []
+        if (
+            not metadata.get("disable_auto_contradiction_detection")
+            and metadata.get("scope") != "character_canon"
+            and memory_type != "character_fact"
+            and normalized_source not in {"skill", "imported_reference"}
+        ):
+            contradiction_hits = detect_memory_contradictions(content, self.memories)
+        contradiction_ids = [hit["memory_id"] for hit in contradiction_hits if hit.get("memory_id")]
+        if contradiction_ids:
+            metadata = dict(metadata)
+            metadata["contradicts"] = normalize_memory_refs(metadata.get("contradicts", [])) + contradiction_ids
+            metadata["contradicts"] = normalize_memory_refs(metadata["contradicts"])
+            metadata["reason"] = append_reason(
+                metadata.get("reason", ""),
+                "Auto contradiction detection linked this memory to earlier active memories.",
+            )
+            metadata["evidence"] = append_unique_texts(
+                metadata.get("evidence"),
+                [evidence for hit in contradiction_hits for evidence in hit.get("evidence", [])],
+            )
+            metadata["auto_contradiction_detection"] = [
+                {
+                    "memory_id": hit["memory_id"],
+                    "score": hit["score"],
+                    "reason": hit["reason"],
+                }
+                for hit in contradiction_hits
+            ]
+
         auto_link_hits: List[Dict[str, Any]] = []
         if (
             not metadata.get("disable_auto_linking")
@@ -1501,6 +1591,28 @@ class HybridMemoryStore:
             "source_kind": normalized_source,
         }
         self.memories.append(memory)
+        if contradiction_hits:
+            added_id = int(memory["id"])
+            for hit in contradiction_hits:
+                old_memory = hit["memory"]
+                self.update_memory(
+                    hit["memory_id"],
+                    status="contradicted",
+                    confidence=min(float(old_memory.get("confidence", 0.65)), hit["confidence"]),
+                    valid_until=old_memory.get("valid_until") or now_iso(),
+                    reason=append_reason(
+                        old_memory.get("reason", ""),
+                        f"Auto contradiction detection: contradicted by memory #{added_id}.",
+                    ),
+                    evidence=append_unique_texts(
+                        old_memory.get("evidence"),
+                        [f"contradicted_by:{added_id}", f"auto_contradiction_score:{hit['score']}"],
+                    ),
+                    metadata={
+                        "auto_contradicted_by": added_id,
+                        "auto_contradiction_score": hit["score"],
+                    },
+                )
         if auto_link_ids:
             new_id = int(memory["id"])
             for old_memory in self.memories:
@@ -2599,6 +2711,8 @@ class MemoryRuntime:
                 "memory_type": "summary",
                 "scope": "relationship_context",
                 "confidence": 0.72,
+                "disable_auto_contradiction_detection": True,
+                "disable_auto_linking": True,
                 "reason": "Reflective memory maintenance merged scattered durable memories into a higher-level relationship note.",
                 "evidence": [f"memory:{memory_id}" for memory_id in linked_ids],
                 "links": linked_ids,
