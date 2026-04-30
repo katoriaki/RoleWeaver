@@ -1,5 +1,7 @@
 import unittest
 import sys
+import json
+import tempfile
 from datetime import datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -18,6 +20,9 @@ from role_config import (
 
 
 class LineBotAppTestCase(unittest.TestCase):
+    def tearDown(self):
+        line_bot_app.load_surface_policy.cache_clear()
+
     def test_split_reply_text_chunks_long_message(self):
         text = "a" * 9001
         chunks = line_bot_app.split_reply_text(text, chunk_size=4500)
@@ -57,6 +62,62 @@ class LineBotAppTestCase(unittest.TestCase):
             self.assertTrue(line_bot_app.should_use_voice_reply("この返事を音声でお願いします", now=morning))
             self.assertTrue(line_bot_app.should_use_voice_reply("hello", now=evening))
             self.assertFalse(line_bot_app.should_use_voice_reply("no voice, text only", now=evening))
+
+    def test_surface_policy_file_controls_line_voice_and_tokens(self):
+        policy = {
+            "line": {
+                "max_new_tokens": 256,
+                "reply_chunk_size": 1000,
+                "voice": {
+                    "reply_voice": True,
+                    "text_only_window_enabled": True,
+                    "text_only_start": "09:00",
+                    "text_only_end": "10:00",
+                    "timezone": "Asia/Tokyo",
+                    "allow_voice_on_request": True,
+                    "request_markers": ["please sing"],
+                    "reject_markers": ["silent mode"],
+                },
+                "wake_up": {
+                    "time": "06:30",
+                    "timezone": "Asia/Tokyo",
+                },
+            }
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            policy_path = Path(temp_dir) / "surface_policy.json"
+            policy_path.write_text(json.dumps(policy), encoding="utf-8")
+            env = {
+                "ROLEWEAVER_SURFACE_POLICY_FILE": str(policy_path),
+            }
+            morning = datetime(2026, 4, 28, 9, 30, tzinfo=ZoneInfo("Asia/Tokyo"))
+            evening = datetime(2026, 4, 28, 18, 0, tzinfo=ZoneInfo("Asia/Tokyo"))
+            with patch.dict("os.environ", env, clear=True):
+                line_bot_app.load_surface_policy.cache_clear()
+                self.assertEqual(line_bot_app.line_max_new_tokens(), 256)
+                self.assertFalse(line_bot_app.should_use_voice_reply("hello", now=morning))
+                self.assertTrue(line_bot_app.should_use_voice_reply("please sing", now=morning))
+                self.assertFalse(line_bot_app.should_use_voice_reply("silent mode", now=evening))
+                self.assertTrue(line_bot_app.should_use_voice_reply("hello", now=evening))
+                next_wakeup = line_bot_app._next_wakeup_datetime(
+                    datetime(2026, 4, 28, 5, 0, tzinfo=ZoneInfo("Asia/Tokyo"))
+                )
+                self.assertEqual((next_wakeup.hour, next_wakeup.minute), (6, 30))
+
+    def test_surface_policy_env_overrides_file(self):
+        policy = {"line": {"max_new_tokens": 256, "voice": {"reply_voice": False}}}
+        with tempfile.TemporaryDirectory() as temp_dir:
+            policy_path = Path(temp_dir) / "surface_policy.json"
+            policy_path.write_text(json.dumps(policy), encoding="utf-8")
+            env = {
+                "ROLEWEAVER_SURFACE_POLICY_FILE": str(policy_path),
+                "ROLEWEAVER_LINE_MAX_NEW_TOKENS": "384",
+                "ROLEWEAVER_REPLY_VOICE": "1",
+            }
+            with patch.dict("os.environ", env, clear=True):
+                line_bot_app.load_surface_policy.cache_clear()
+                self.assertEqual(line_bot_app.line_max_new_tokens(), 384)
+                self.assertTrue(line_bot_app.should_use_voice_reply("hello"))
 
     def test_health_and_missing_signature(self):
         client = TestClient(line_bot_app.app)

@@ -1,0 +1,26 @@
+key,value,description
+base_model_path,/public/huggingface-models/Qwen/Qwen3.5-4B,A800 server local path for Qwen3.5 4B text base
+lora_path,outputs/continual_adapter_bank/shiro-study-smoke-20260429-2240,Smoke continual-learning LoRA adapter
+skill_file,skillcreater/characters/Shiro/skill/SKILL.md,Shiro persona skill
+skill_text,,Optional inline skill extension
+quantization_mode,4bit,Use 4bit QLoRA-style inference for sidecar testing
+device_map_mode,gpu,Use one GPU and reject silent CPU offload
+model_loader_mode,text,Text-only loader required for this LoRA adapter
+context_window_tokens,32768,Sidecar text context budget
+local_location,"Tokyo, Japan",Assumed local location for schedule/planning context
+background_jobs_enabled,false,Disable background jobs on adapter sidecar
+background_llm_enabled,false,Disable background LLM jobs on adapter sidecar
+background_idle_seconds,600,Unused for sidecar
+background_window_start,00:00,Unused for sidecar
+background_window_end,00:00,Unused for sidecar
+background_max_minutes,20,Unused for sidecar
+autonomous_learning_enabled,false,Keep learning loop on the main Omni service
+autonomous_learning_subjects,"mathematics, computer science",Unused for sidecar
+autonomous_learning_interval_seconds,300,Unused for sidecar
+autonomous_learning_use_model,false,Unused for sidecar
+autonomous_learning_max_new_tokens,256,Unused for sidecar
+preload_model_on_startup,true,Load the adapter sidecar at startup
+shiro_enabled,true,Enable Shiro cognitive bridge
+shiro_root,shiro/data/roleweaver,Shiro cognitive state directory
+shiro_identity,白,Shiro identity name
+ui_language,zh,Default web UI language

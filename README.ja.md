@@ -6,16 +6,19 @@ RoleWeaver は、ベース LLM、任意の LoRA adapter、任意の role skill �
 
 ## 最新アップデート
 
-2026-04-27:
+2026-04-29:
 
-- Windows ランチャーは `127.0.0.1:8000` で既に RoleWeaver が動いている場合、その既存サーバーを開きます。8000 が別プロセスで使われている場合は `8001-8020` の空きポートを自動選択します。
-- ローカル Training パネルが Excel、CSV、標準 JSONL データセットに対応しました。
-- `resources/qwen35_lora_training/role_sft_template.xlsx` を追加しました。列は `user` と `assistant` の 2 列です。
-- 編集可能なチャット表示名を追加しました。内部 `session_id` は UI から隠し、従来通り memory フォルダの対応に使います。
-- 履歴チャットの復元、名前変更、削除、セッション別 Settings snapshot に対応しました。
-- [RoleWeaver Design Principles](docs/DESIGN_PRINCIPLES.md) を追加し、キャラクターの自律性、記憶境界、メディア適応ルール、今後の設計ロードマップを明文化しました。
-- 構造化され、根拠を追跡できるロール定義のために、初版 [Persona Kernel schema](docs/PERSONA_KERNEL_SCHEMA.md) を追加しました。
-- [Memory Item schema](docs/MEMORY_ITEM_SCHEMA.md) と軽量な [persona regression harness](eval/persona_regression/README.md) を追加しました。
+- Vue ベースの一体型コンソールを追加し、チャット、設定、記憶、学習、LINE/TTS/公開 URL、評価、フローを明確なページに分けました。
+- Planning ページを追加しました。端末時刻、場所、キャラクターの週間予定、現在の生活状態、参考資料、簡易 Web 検索を表示します。
+- memory + reflection + planning 層を追加しました。role mode では現在時刻・場所・予定 context を渡しますが、persona kernel や公式設定を上書きしません。
+- Persona Anchor Replay を追加しました。`SKILL.md` の近くにある短い人格アンカーを読み込み、長対話での persona drift を抑えるための校正 context として使います。
+- 単一 GPU 常駐向けのバックグラウンド・スケジューラを追加しました。planning 更新、記憶 snapshot、非アクティブモデル解放などの軽量処理はアイドル時間に実行でき、LLM を使う処理は明示的に許可するまで無効です。
+- 制御されたツール層を追加しました。`/tools`、`/tools/run`、`/tools/actions` から時刻、planning、記憶、バックグラウンド、LINE/Tunnel、学習状態などのホワイトリスト済みツールを呼び出し、ログに残せます。
+- Shiro Bridge を追加しました。独立した `shiro/` プロジェクトから cognitive context を任意で読み込み、会話後に stimulus を書き戻し、Web コンソールに「白」状態ページを表示できます。
+- Shiro M6.3 の第一版として、PDF 読み取りと Web 検索のツール意図を追加し、RoleWeaver ツール層に `document.pdf_read` を追加しました。
+- モデル-LoRA-Skill ごとの memory scope に `planning/weekly_schedule.json` を保存し、週ごとに自動生成できます。
+- LINE Bot 設定、起動/停止、Cloudflare 一時公開 URL の API を追加しました。
+- 秦谷美鈴の `persona_kernel.json` を現行 schema に合わせて再生成しました。
 
 完全な更新告知は [CHANGELOG.md](CHANGELOG.md) を参照してください。
 
@@ -29,6 +32,7 @@ RoleWeaver は、ベース LLM、任意の LoRA adapter、任意の role skill �
 - FastAPI API、ブラウザ UI、CLI、bot 連携の土台を提供します。
 - 明文化された設計契約に従います。キャラクターの自律性は、ペルソナ一貫性、長期記憶、タスク完了、プラットフォーム形式適応より優先されます。詳しくは [docs/DESIGN_PRINCIPLES.md](docs/DESIGN_PRINCIPLES.md) を参照してください。
 - `SKILL.md` の近くに `persona_kernel.json` がある場合は自動的に読み込みます。通常ユーザーが指定するパスは引き続き `SKILL.md` だけです。
+- `SKILL.md` の近くに `anchors/anchors.jsonl` がある場合は人格アンカーも自動的に読み込みます。詳しくは [Persona Anchors Design](docs/ANCHORS.zh-CN.md) を参照してください。
 - キャラクター自律性、メディア適応、記憶境界の退行を確認する初期 persona regression harness を含みます。
 
 ## クイックスタート
@@ -46,7 +50,10 @@ Excel、Web Settings パネル、またはテキストエディタで以下を�
 - `skill_file` 任意
 - `skill_text` 任意の短い inline skill
 - `quantization_mode` 既定は `4bit`
+- `local_location` 任意。Planning が想定する場所。例: `Tokyo, Japan`
 - `ui_language`: `zh`、`ja`、`en`
+- `background_jobs_enabled`: 軽量バックグラウンド処理を有効化
+- `background_llm_enabled`: バックグラウンドでローカルモデルを使うか。単一 GPU では既定の `false` 推奨
 
 Windows ランチャー:
 
@@ -86,6 +93,7 @@ Web UI は以下に対応します。
 - 表示名の編集。memory フォルダ名は変更しません。
 - 確認後の履歴削除。
 - Exit またはページクローズ時の記憶整理。
+- Planning 状態と週間ロール予定の確認・再生成。
 - Excel、CSV、JSONL を使ったローカル LoRA 学習。
 
 ## HTTP API
@@ -166,6 +174,33 @@ python API.py --config roleweaver.config.csv --host 127.0.0.1 --port 8000
 }
 ```
 
+### `GET /planning/{session_id}`
+
+指定セッションの planning 状態を返します。Planning はモデル-LoRA-Skill の memory scope ごとに分離され、別キャラクターの予定とは混ざりません。
+
+主なレスポンス項目:
+
+- `device_context`: 端末の現在時刻、日付、UTC offset、タイムゾーン、場所。
+- `schedule`: `planning/weekly_schedule.json` に保存される週間ロール予定。
+- `current_context`: role mode の prompt に渡される制限付き planning context。
+- `current_anchor`: `SKILL.md` の近くに `anchors/anchors.jsonl` がある場合に選ばれる人格アンカー。
+- `current_anchor_context`: 新しい記憶ではないことを明示した制限付き anchor context。
+- `sources`: 予定設計に使った参考資料。
+
+### `POST /planning/{session_id}/regenerate`
+
+現在の memory scope の週間予定を再生成します。セッションディレクトリの対応は変更しません。
+
+### `GET /planning/search`
+
+Web コンソール用の簡易検索です。日程、祝日、学校生活などの参考資料探しに使います。
+
+例:
+
+```text
+/planning/search?q=Japan high school daily schedule club activities&limit=5
+```
+
 ### `GET /config`
 
 現在の編集可能な設定を返します。
@@ -178,6 +213,13 @@ python API.py --config roleweaver.config.csv --host 127.0.0.1 --port 8000
 - `skill_file`
 - `skill_text`
 - `quantization_mode`
+- `local_location`
+- `background_jobs_enabled`
+- `background_llm_enabled`
+- `background_idle_seconds`
+- `background_window_start`
+- `background_window_end`
+- `background_max_minutes`
 - `ui_language`
 
 ### `POST /config`
@@ -193,11 +235,68 @@ python API.py --config roleweaver.config.csv --host 127.0.0.1 --port 8000
   "skill_file": "C:\\roles\\SKILL.md",
   "skill_text": "",
   "quantization_mode": "4bit",
+  "local_location": "Tokyo, Japan",
+  "background_jobs_enabled": true,
+  "background_llm_enabled": false,
+  "background_idle_seconds": 600,
+  "background_window_start": "02:00",
+  "background_window_end": "05:30",
+  "background_max_minutes": 20,
   "ui_language": "ja"
 }
 ```
 
 すべての項目は任意です。省略した項目は現在値を維持します。
+
+### `GET /background/status`
+
+単一 GPU 常駐向けバックグラウンド・スケジューラの状態を返します。`idle_seconds`、`eligible_non_llm`、`eligible_llm`、`active_job`、`recent_jobs` を確認できます。
+
+### `POST /background/pause`
+
+バックグラウンド処理を一時停止します。
+
+### `POST /background/resume`
+
+バックグラウンド処理を再開します。
+
+### `POST /background/run-once`
+
+バックグラウンド処理を1回だけ手動実行します。`force=true` は idle/time-window 制限だけを無視し、`background_llm_enabled=false` は無視しません。
+
+```json
+{
+  "job_type": "planning_regenerate",
+  "session_id": "web",
+  "force": true
+}
+```
+
+対応 job: `planning_regenerate`、`memory_os_snapshot`、`memory_consolidation`、`release_inactive_models`。
+
+### `GET /tools`
+
+現在登録されているホワイトリスト済みツールを返します。
+
+### `POST /tools/run`
+
+ツールを1回実行し、`data/tool_actions/actions.jsonl` に記録します。
+
+```json
+{
+  "tool_name": "memory.search",
+  "session_id": "web",
+  "actor": "user",
+  "arguments": {
+    "query": "カレー",
+    "top_k": 5
+  }
+}
+```
+
+### `GET /tools/actions`
+
+最近のツール呼び出しを返します。設計は [docs/TOOL_LAYER.zh-CN.md](docs/TOOL_LAYER.zh-CN.md) を参照してください。
 
 ### `GET /sessions`
 

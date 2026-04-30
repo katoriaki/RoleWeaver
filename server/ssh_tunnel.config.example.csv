@@ -1,0 +1,9 @@
+key,value,description
+ssh_host,ssh-cn-huabei1.ebcloud.com,SSH gateway host
+ssh_port,37589,SSH gateway port
+ssh_user,root,SSH username
+ssh_password,,SSH password; use local config only and do not commit
+local_host,127.0.0.1,Local bind host
+local_port,8000,Local bind port for Unity/Web
+remote_host,127.0.0.1,Remote RoleWeaver API host from SSH server
+remote_port,8000,Remote RoleWeaver API port

@@ -6,6 +6,8 @@ This document defines the design boundary for RoleWeaver after the project moved
 
 RoleWeaver is not just a local chat UI around a LoRA adapter. Its long-term goal is to make role-playing agents that can remain character-consistent, memory-aware, and media-adaptive without collapsing into a generic assistant or a user-pleasing tool.
 
+For the research-prioritized architecture roadmap, see [ROLEWEAVER_TOP_LEVEL_DESIGN.zh-CN.md](ROLEWEAVER_TOP_LEVEL_DESIGN.zh-CN.md).
+
 ## 1. Core Priority Order
 
 Every implementation decision should preserve this order:
@@ -247,6 +249,9 @@ The common lesson is that role-playing, personalization, and memory must be trea
 - Add evidence, confidence, status, source, and validity fields.
 - Separate character facts from user personalization.
 - Add stale-memory handling.
+- Track actual memory use with `use_count`, `last_used_at`, and `reinforcement_score`.
+- Let repeated contextual use slightly strengthen retrieval and decay resistance without overriding persona canon.
+- Expose lifecycle explanations so users can see why a memory is reinforced, linked, stale, contradicted, or protected.
 
 ### Milestone D: Persona Regression Eval
 

@@ -105,6 +105,62 @@ Stale or contradicted memory must not be used as if it were active truth.
 
 `contradicted_by` is computed when memories are listed through the API. It shows incoming contradiction links from other memory records.
 
+## A-Mem Style Old-Memory Evolution
+
+M4.7 adds a non-destructive A-Mem-style evolution record for old memories.
+
+When a new active memory is linked to an older active memory, the older memory keeps its original `content`, `scope`, and `memory_type`. RoleWeaver only updates metadata:
+
+```json
+{
+  "metadata": {
+    "amem": {
+      "policy": "non_destructive_metadata_only",
+      "evolved_by": [12],
+      "last_evolved_at": 1777440000,
+      "current_interpretation": "A-Mem evolution: older preference memory should now be interpreted together with newer relationship memory #12...",
+      "cluster_key": "preference::long_term::line",
+      "topic_labels": ["preference", "long_term", "line", "persona"],
+      "relationship_strength": 0.18,
+      "stability": "tentative",
+      "retrieval_aliases": [
+        "preference",
+        "line",
+        "The user prefers concise LINE replies..."
+      ],
+      "evolution_summary": "The user prefers concise LINE replies... | updated_by #12: LINE replies should preserve persona...",
+      "evolution_events": [
+        {
+          "at": 1777440000,
+          "new_memory_id": 12,
+          "score": 0.18,
+          "reason": "amem_old_memory_evolution: newer linked memory refined the interpretation of this older memory.",
+          "new_memory_type": "relationship",
+          "new_memory_layer": "long_term",
+          "new_memory_tags": ["line", "persona"],
+          "new_memory_excerpt": "...",
+          "topic_labels": ["preference", "long_term", "line", "persona"],
+          "cluster_key": "preference::long_term::line",
+          "relationship_strength": 0.18,
+          "interpretation_delta": "New relationship memory #12 should refine older preference memory #5 instead of replacing it."
+        }
+      ]
+    }
+  }
+}
+```
+
+This adapts A-Mem to RoleWeaver's Memory OS:
+
+- old memory evolution is stored as metadata, not a silent rewrite of the original memory;
+- every evolution stores a structured note: topic labels, cluster key, relationship strength, stability, retrieval aliases, and a compact summary;
+- `character_canon`, skill memories, and imported references are protected and never evolved by user chat;
+- evolved metadata is included in the retrieval index, so old memories can be found through their newer interpretation;
+- Memory OS snapshots expose `amem_evolution.evolved_memory_count`, `amem_evolution.evolution_event_count`, and the strongest evolved notes;
+- lifecycle views show how many evolution events a memory has, plus the cluster, labels, strength, and stability.
+
+Maintenance also backfills evolution events across existing `links`, so older sessions can gradually receive the new metadata without migration scripts.
+
 ## Automatic Contradiction Detection
 
 M4.3 adds conservative automatic contradiction detection during deferred memory consolidation.

@@ -6,6 +6,24 @@ RoleWeaver turns a base LLM, an optional LoRA adapter, and an optional role skil
 
 ## Latest Update
 
+2026-04-29:
+
+- Added a one-stop local Web console entry for LINE Bot configuration.
+- Rebuilt the local Web UI as a Vue-based console with clear pages for overview, chat, runtime, Memory OS, Planning, training, LINE/TTS/public URL, evaluation, and flows.
+- Added a memory + reflection + planning layer with device time, local location, weekly role schedules, Japanese holiday awareness, and deterministic role-like perturbations.
+- Added Persona Anchor Replay: short official/reference-derived anchors can be loaded beside `SKILL.md` and replayed as non-memory persona calibration context.
+- Added a single-GPU background scheduler. Light jobs such as planning refresh, memory snapshots, and inactive-model release can run in idle windows; LLM background jobs stay disabled until explicitly allowed.
+- Added a controlled tool layer: `/tools`, `/tools/run`, and `/tools/actions` expose whitelisted time, planning, memory, background, LINE/Tunnel, and training status tools with action logs.
+- Added an optional Shiro Bridge that reads cognitive context from the separate `shiro/` project, writes chat turns back as stimuli, and exposes a Shiro status page in the Web console.
+- Added the first Shiro M6.3 tool-intention path for PDF reading and web-search solution lookup; RoleWeaver now exposes `document.pdf_read`.
+- Added Planning APIs: `GET /planning/{session_id}`, `POST /planning/{session_id}/regenerate`, and `GET /planning/search`.
+- Regenerated the Hataya Misuzu persona kernel for the current schema, including autonomy, memory boundaries, media adaptation, and planning-state safeguards.
+- The Web UI can now edit `line/.env` and `line/surface_policy.json`.
+- Added `GET /integrations/line/settings` and `POST /integrations/line/settings` for local integration configuration.
+- Added LINE bot start/stop/status APIs and temporary Cloudflare Tunnel APIs for generating the LINE Webhook URL.
+- Surface policy JSON is validated before saving.
+- Added [One-stop Console Design](docs/ONE_STOP_CONSOLE.zh-CN.md) for the unified local entry strategy.
+
 2026-04-27:
 
 - Added a Windows launcher that reuses an existing RoleWeaver server on `127.0.0.1:8000` or automatically falls back to the next free port through `8020`.
@@ -14,6 +32,7 @@ RoleWeaver turns a base LLM, an optional LoRA adapter, and an optional role skil
 - Added editable chat display names. Internal `session_id` values remain hidden and continue to map to the original memory folders.
 - Expanded session history: restore, rename, delete, and per-session settings snapshots.
 - Added [RoleWeaver Design Principles](docs/DESIGN_PRINCIPLES.md), defining persona autonomy, memory boundaries, media adaptation rules, and the next design roadmap.
+- Added [RoleWeaver Top-Level Design](docs/ROLEWEAVER_TOP_LEVEL_DESIGN.zh-CN.md), mapping the research priority order into the long-term architecture and milestone plan.
 - Added the first [Persona Kernel schema](docs/PERSONA_KERNEL_SCHEMA.md) for structured, evidence-aware role definitions.
 - Added [Memory Item schema](docs/MEMORY_ITEM_SCHEMA.md) and a lightweight [persona regression harness](eval/persona_regression/README.md).
 
@@ -29,6 +48,7 @@ See [CHANGELOG.md](CHANGELOG.md) for the full update announcement.
 - Provides a local FastAPI API, a browser UI, a CLI chat entrypoint, and bot integration scaffolding.
 - Follows a documented design contract: character autonomy comes before persona consistency, memory personalization, task completion, and platform formatting. See [docs/DESIGN_PRINCIPLES.md](docs/DESIGN_PRINCIPLES.md).
 - Automatically loads a nearby `persona_kernel.json` next to `SKILL.md` when present, while keeping `SKILL.md` as the only user-facing skill path.
+- Automatically loads nearby `anchors/anchors.jsonl` when present. See [Persona Anchors Design](docs/ANCHORS.zh-CN.md).
 - Includes an early persona regression harness for checking autonomy, media adaptation, and memory-boundary regressions.
 
 ## Quick Start
@@ -46,7 +66,10 @@ Fill these values in Excel, the web Settings panel, or a text editor:
 - `skill_file` optional
 - `skill_text` optional short inline skill
 - `quantization_mode` default `4bit`
+- `local_location` optional role-planning location, such as `Tokyo, Japan`
 - `ui_language` one of `zh`, `ja`, `en`
+- `background_jobs_enabled` enables light idle-time jobs
+- `background_llm_enabled` allows background jobs to invoke the local model; keep `false` for conservative single-GPU operation
 
 Create or refresh the project-local runtime:
 
@@ -83,12 +106,15 @@ The launcher will:
 The web UI supports:
 
 - Chinese, Japanese, and English interface text;
+- a Vue-based left navigation console instead of a crowded More menu;
 - Settings for base model, LoRA, skill file, inline skill, quantization, and UI language;
 - chat history restore;
 - editable display names that do not rename memory folders;
 - history deletion after confirmation;
 - explicit memory consolidation on Exit or page close;
+- visible Planning state with current time/location, weekly role schedule, reference sources, and manual lookup;
 - local LoRA training with Excel, CSV, or JSONL data.
+- LINE Bot configuration, process start/stop, temporary Cloudflare Tunnel generation, and LINE Webhook URL display.
 
 ## HTTP API
 
@@ -168,6 +194,33 @@ Response:
 }
 ```
 
+### `GET /planning/{session_id}`
+
+Returns the planning state for the selected session. Planning is scoped by the same model-LoRA-skill memory scope, so different characters do not share schedules.
+
+Typical response fields:
+
+- `device_context`: local device time, date, UTC offset, timezone, and configured location;
+- `schedule`: the weekly role schedule saved as `planning/weekly_schedule.json`;
+- `current_context`: the bounded planning prompt text used by role mode;
+- `current_anchor`: the selected persona anchor when `anchors/anchors.jsonl` exists beside `SKILL.md`;
+- `current_anchor_context`: the bounded anchor prompt text, explicitly marked as non-memory calibration context;
+- `sources`: reference sources used by the schedule design.
+
+### `POST /planning/{session_id}/regenerate`
+
+Regenerates the current week's schedule for the selected memory scope without changing the session directory mapping.
+
+### `GET /planning/search`
+
+Runs a lightweight web lookup for planning references from the Web console.
+
+Example:
+
+```text
+/planning/search?q=Japan high school daily schedule club activities&limit=5
+```
+
 ### `GET /config`
 
 Returns the active editable config.
@@ -180,6 +233,16 @@ Response fields:
 - `skill_file`
 - `skill_text`
 - `quantization_mode`
+- `device_map_mode`
+- `model_loader_mode`
+- `context_window_tokens`
+- `local_location`
+- `background_jobs_enabled`
+- `background_llm_enabled`
+- `background_idle_seconds`
+- `background_window_start`
+- `background_window_end`
+- `background_max_minutes`
 - `ui_language`
 
 ### `POST /config`
@@ -195,11 +258,141 @@ Request body:
   "skill_file": "C:\\roles\\SKILL.md",
   "skill_text": "",
   "quantization_mode": "4bit",
+  "device_map_mode": "gpu",
+  "model_loader_mode": "text",
+  "context_window_tokens": 0,
+  "local_location": "Tokyo, Japan",
+  "background_jobs_enabled": true,
+  "background_llm_enabled": false,
+  "background_idle_seconds": 600,
+  "background_window_start": "02:00",
+  "background_window_end": "05:30",
+  "background_max_minutes": 20,
   "ui_language": "en"
 }
 ```
 
 All fields are optional; omitted fields keep their current value.
+
+### `GET /background/status`
+
+Returns the single-GPU background scheduler state, including `idle_seconds`, `eligible_non_llm`, `eligible_llm`, `active_job`, and `recent_jobs`.
+
+### `POST /background/pause`
+
+Pauses background work.
+
+### `POST /background/resume`
+
+Resumes background work.
+
+### `POST /background/run-once`
+
+Runs one background job. `force=true` bypasses idle and time-window checks, but it does not bypass `background_llm_enabled=false`.
+
+```json
+{
+  "job_type": "planning_regenerate",
+  "session_id": "web",
+  "force": true
+}
+```
+
+Supported jobs: `planning_regenerate`, `memory_os_snapshot`, `memory_consolidation`, and `release_inactive_models`.
+
+### `GET /tools`
+
+Lists the currently registered whitelisted tools.
+
+### `POST /tools/run`
+
+Runs one tool and writes the call to `data/tool_actions/actions.jsonl`.
+
+```json
+{
+  "tool_name": "memory.search",
+  "session_id": "web",
+  "actor": "user",
+  "arguments": {
+    "query": "curry",
+    "top_k": 5
+  }
+}
+```
+
+### `GET /tools/actions`
+
+Returns recent tool calls. See [docs/TOOL_LAYER.zh-CN.md](docs/TOOL_LAYER.zh-CN.md) for the design.
+
+### `GET /integrations/line/settings`
+
+Returns local LINE Bot editable files for the Web console.
+
+Response fields:
+
+- `env_file`
+- `env_text`
+- `surface_policy_file`
+- `surface_policy_text`
+
+### `POST /integrations/line/settings`
+
+Updates `line/.env` and/or `line/surface_policy.json`.
+
+Request body:
+
+```json
+{
+  "env_text": "LINE_CHANNEL_SECRET=...\nLINE_CHANNEL_ACCESS_TOKEN=...\n",
+  "surface_policy_text": "{\"line\":{\"max_new_tokens\":192}}"
+}
+```
+
+`surface_policy_text` must be valid JSON. Restart the LINE bot process after changing startup-only environment values.
+
+### `GET /integrations/line/runtime/status`
+
+Returns the LINE bot subprocess status when it was started from the Web console.
+
+### `POST /integrations/line/runtime/start`
+
+Starts `line/run_line_bot.py` as a background subprocess.
+
+Request body:
+
+```json
+{
+  "host": "0.0.0.0",
+  "port": 8010
+}
+```
+
+### `POST /integrations/line/runtime/stop`
+
+Requests termination of the Web-console-started LINE bot subprocess.
+
+### `GET /integrations/tunnel/status`
+
+Returns the temporary tunnel status, generated public URL, and `https://.../callback` Webhook URL.
+
+### `POST /integrations/tunnel/start`
+
+Starts a Cloudflare quick tunnel for the LINE bot.
+
+Request body:
+
+```json
+{
+  "provider": "cloudflared",
+  "target_url": "http://127.0.0.1:8010"
+}
+```
+
+Put `cloudflared.exe` in `tools/`, `runtime/`, `PATH`, or set `ROLEWEAVER_CLOUDFLARED_PATH`.
+
+### `POST /integrations/tunnel/stop`
+
+Stops the Web-console-started tunnel process.
 
 ### `GET /sessions`
 

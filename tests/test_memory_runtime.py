@@ -450,6 +450,170 @@ class MemoryRuntimeTestCase(unittest.TestCase):
         self.assertGreaterEqual(snapshot["layers"]["long_term"], 2)
         self.assertEqual(snapshot["layers"]["contradiction_graph"], 1)
 
+    def test_context_retrieval_reinforces_used_memories(self):
+        memory = self.runtime.episodic.add_memory(
+            content="The user prefers concise LINE replies during work hours.",
+            tags=["line", "preference"],
+            importance=4,
+            category="preference",
+            metadata={"confidence": 0.82, "memory_type": "preference"},
+        )
+
+        context_text = self.runtime.build_context("work hours LINE concise replies").render()
+        refreshed = next(item for item in self.runtime.episodic.list_memories() if item["id"] == memory["id"])
+        snapshot = self.runtime.memory_os_snapshot()
+
+        self.assertIn("concise LINE replies", context_text)
+        self.assertEqual(refreshed["use_count"], 1)
+        self.assertIsNotNone(refreshed["last_used_at"])
+        self.assertGreater(refreshed["reinforcement_score"], 0.0)
+        self.assertEqual(snapshot["reinforcement"]["reinforced_memory_count"], 1)
+        self.assertEqual(snapshot["reinforcement"]["total_use_count"], 1)
+
+    def test_new_memory_auto_links_related_active_memories(self):
+        first = self.runtime.episodic.add_memory(
+            content="The user is integrating RoleWeaver with LINE.",
+            tags=["project", "line"],
+            importance=4,
+            category="episodic",
+            metadata={"confidence": 0.82},
+        )
+        second = self.runtime.episodic.add_memory(
+            content="LINE integration should keep concise replies while preserving persona.",
+            tags=["project", "line", "persona"],
+            importance=4,
+            category="relationship",
+            metadata={"confidence": 0.86, "memory_type": "relationship"},
+        )
+
+        refreshed_first = next(item for item in self.runtime.episodic.list_memories() if item["id"] == first["id"])
+
+        self.assertIn(first["id"], second["links"])
+        self.assertIn(second["id"], refreshed_first["links"])
+        self.assertIn("auto_link", ";".join(second["evidence"]))
+        self.assertEqual(refreshed_first["metadata"]["linked_by"][-1]["memory_id"], second["id"])
+        self.assertIn("amem", refreshed_first["metadata"])
+        self.assertEqual(refreshed_first["metadata"]["amem"]["evolved_by"][-1], second["id"])
+        self.assertIn("current_interpretation", refreshed_first["metadata"]["amem"])
+        self.assertEqual(refreshed_first["metadata"]["amem"]["cluster_key"], "episodic::long_term::project")
+        self.assertIn("persona", refreshed_first["metadata"]["amem"]["topic_labels"])
+        self.assertIn("retrieval_aliases", refreshed_first["metadata"]["amem"])
+        self.assertGreater(refreshed_first["metadata"]["amem"]["relationship_strength"], 0.0)
+        lifecycle = memory_runtime.memory_lifecycle_view(refreshed_first)
+        self.assertEqual(lifecycle["amem_evolution_count"], 1)
+        self.assertIn("A-Mem evolution", lifecycle["amem_current_interpretation"])
+        self.assertEqual(lifecycle["amem_cluster_key"], "episodic::long_term::project")
+        self.assertIn(lifecycle["amem_stability"], {"tentative", "stable"})
+
+    def test_auto_linking_does_not_link_user_memory_to_character_canon(self):
+        canon = self.runtime.episodic.add_memory(
+            content="Misuzu keeps persona autonomy in LINE.",
+            tags=["line", "persona"],
+            importance=5,
+            category="character_fact",
+            source="skill",
+            metadata={"confidence": 1.0, "memory_type": "character_fact", "scope": "character_canon"},
+        )
+        user_memory = self.runtime.episodic.add_memory(
+            content="The user is testing LINE persona autonomy.",
+            tags=["line", "persona"],
+            importance=3,
+            category="episodic",
+            metadata={"confidence": 0.7},
+        )
+
+        refreshed_canon = next(item for item in self.runtime.episodic.list_memories() if item["id"] == canon["id"])
+
+        self.assertNotIn(canon["id"], user_memory["links"])
+        self.assertNotIn(user_memory["id"], refreshed_canon["links"])
+        self.assertNotIn("amem", refreshed_canon["metadata"])
+
+    def test_memory_maintenance_backfills_amem_evolution_for_existing_links(self):
+        old_memory = self.runtime.episodic.add_memory(
+            content="The user wants concise LINE replies.",
+            tags=["line", "reply"],
+            importance=4,
+            category="preference",
+            metadata={"confidence": 0.8, "memory_type": "preference", "disable_auto_linking": True},
+        )
+        new_memory = self.runtime.episodic.add_memory(
+            content="Concise LINE replies should preserve the role persona.",
+            tags=["line", "reply", "persona"],
+            importance=4,
+            category="relationship",
+            metadata={
+                "confidence": 0.86,
+                "memory_type": "relationship",
+                "links": [old_memory["id"]],
+                "disable_auto_linking": True,
+            },
+        )
+
+        result = self.runtime.run_memory_maintenance(reason="test_amem_backfill")
+        refreshed_old = next(item for item in self.runtime.episodic.list_memories() if item["id"] == old_memory["id"])
+        snapshot = self.runtime.memory_os_snapshot()
+
+        self.assertEqual(result["amem_evolution"]["updated_count"], 1)
+        self.assertEqual(refreshed_old["metadata"]["amem"]["evolved_by"], [new_memory["id"]])
+        self.assertEqual(snapshot["amem_evolution"]["evolved_memory_count"], 1)
+        self.assertEqual(snapshot["amem_evolution"]["evolution_event_count"], 1)
+        self.assertEqual(snapshot["amem_evolution"]["top"][0]["cluster_key"], "preference::long_term::line")
+        self.assertIn("line", snapshot["amem_evolution"]["top"][0]["topic_labels"])
+        self.assertIn(snapshot["amem_evolution"]["top"][0]["stability"], {"tentative", "stable"})
+
+    def test_amem_evolution_is_included_in_search_index_text(self):
+        old_memory = self.runtime.episodic.add_memory(
+            content="The user prefers short replies.",
+            tags=["line"],
+            importance=3,
+            category="preference",
+            metadata={"confidence": 0.8, "memory_type": "preference"},
+        )
+        new_memory = self.runtime.episodic.add_memory(
+            content="Short LINE replies should avoid persona collapse.",
+            tags=["line", "persona"],
+            importance=4,
+            category="relationship",
+            metadata={"confidence": 0.86, "memory_type": "relationship", "links": [old_memory["id"]]},
+        )
+        refreshed_old = next(item for item in self.runtime.episodic.list_memories() if item["id"] == old_memory["id"])
+
+        indexable = self.runtime.episodic._indexable_text(refreshed_old)
+
+        self.assertIn("persona collapse", indexable)
+        self.assertIn("retrieval_aliases", refreshed_old["metadata"]["amem"])
+        self.assertIn("preference", indexable)
+        self.assertIn("line", indexable)
+        self.assertIn(str(new_memory["id"]), refreshed_old["metadata"]["amem"]["current_interpretation"])
+
+    def test_reinforcement_bonus_can_raise_frequently_used_memory(self):
+        older = self.runtime.episodic.add_memory(
+            content="The user prefers quiet short replies.",
+            tags=["line"],
+            importance=2,
+            category="preference",
+            metadata={"confidence": 0.62, "memory_type": "preference"},
+        )
+        newer = self.runtime.episodic.add_memory(
+            content="The user prefers quiet short replies with extra notes.",
+            tags=["line"],
+            importance=5,
+            category="preference",
+            metadata={"confidence": 0.62, "memory_type": "preference", "disable_auto_linking": True},
+        )
+        self.runtime.episodic.reinforce_memories([older["id"]], amount=0.8, reason="test_reinforcement")
+
+        results = self.runtime.episodic.search(
+            "quiet short replies",
+            top_k=2,
+            min_score=0.01,
+            categories=["preference"],
+        )
+
+        self.assertEqual(results[0]["id"], older["id"])
+        self.assertGreater(results[0]["_final_score"], results[1]["_final_score"])
+        self.assertEqual(newer["id"], results[1]["id"])
+
     def test_manual_contradiction_review_downgrades_target_memory(self):
         old_memory = self.runtime.episodic.add_memory(
             content="The user wants voice replies all day.",
@@ -509,6 +673,57 @@ class MemoryRuntimeTestCase(unittest.TestCase):
         self.assertEqual(memories[preference["id"]]["status"], "active")
         self.assertEqual(memories[canon["id"]]["status"], "active")
         self.assertEqual(result["decay_review"]["updated_count"], 1)
+
+    def test_decay_preserves_reinforced_old_low_confidence_memory(self):
+        weak = self.runtime.episodic.add_memory(
+            content="The user repeatedly asks for a gentle evening check-in.",
+            tags=["line", "evening"],
+            importance=1,
+            category="episodic",
+            metadata={"confidence": 0.25},
+        )
+        self.runtime.episodic.reinforce_memories([weak["id"]], amount=0.24, reason="test_repeated_use")
+        old_ts = memory_runtime.now_ts() - 130 * 86400
+        for memory in self.runtime.episodic.memories:
+            if memory["id"] == weak["id"]:
+                memory["timestamp"] = old_ts
+        self.runtime.episodic._save_memories()
+
+        result = self.runtime.run_memory_maintenance(reason="test_reinforced_decay")
+
+        refreshed = next(memory for memory in self.runtime.episodic.list_memories() if memory["id"] == weak["id"])
+        self.assertEqual(refreshed["status"], "active")
+        self.assertEqual(result["decay_review"]["updated_count"], 0)
+
+    def test_lifecycle_view_explains_reinforced_and_pending_decay(self):
+        weak = self.runtime.episodic.add_memory(
+            content="The user casually mentioned a low-value detail once.",
+            tags=["casual"],
+            importance=1,
+            category="episodic",
+            metadata={"confidence": 0.25},
+        )
+        old_ts = memory_runtime.now_ts() - 130 * 86400
+        for memory in self.runtime.episodic.memories:
+            if memory["id"] == weak["id"]:
+                memory["timestamp"] = old_ts
+        self.runtime.episodic._save_memories()
+        stale_view = memory_runtime.memory_lifecycle_view(
+            next(memory for memory in self.runtime.episodic.list_memories() if memory["id"] == weak["id"])
+        )
+
+        self.assertEqual(stale_view["decay_risk"], "pending")
+        self.assertEqual(stale_view["pending_decay"]["status"], "archived")
+        self.assertTrue(any("Next maintenance" in item for item in stale_view["explanations"]))
+
+        self.runtime.episodic.reinforce_memories([weak["id"]], amount=0.24, reason="test_repeated_use")
+        reinforced_view = memory_runtime.memory_lifecycle_view(
+            next(memory for memory in self.runtime.episodic.list_memories() if memory["id"] == weak["id"])
+        )
+
+        self.assertTrue(reinforced_view["reinforced"])
+        self.assertEqual(reinforced_view["decay_risk"], "low")
+        self.assertIsNone(reinforced_view["pending_decay"])
 
     def test_memory_write_judge_fallbacks_to_rule_plan_on_error(self):
         judged_runtime = memory_runtime.MemoryRuntime(

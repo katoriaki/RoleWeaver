@@ -6,16 +6,19 @@ RoleWeaver 可以把一个底模、一个可选 LoRA adapter、一个可选角�
 
 ## 最新更新
 
-2026-04-27：
+2026-04-29：
 
-- Windows 启动器会复用已有的 `127.0.0.1:8000` RoleWeaver 服务；如果 8000 被其他程序占用，会自动尝试 `8001-8020`。
-- 本地训练面板支持 Excel、CSV、标准 JSONL。
-- 新增标准训练模板 `resources/qwen35_lora_training/role_sft_template.xlsx`，只需要两列：`user` 和 `assistant`。
-- 新增可编辑会话显示名。内部 `session_id` 继续隐藏，并继续映射原来的 memory 文件夹。
-- 历史会话支持恢复、改名、删除和每会话设置快照。
-- 新增 [RoleWeaver 设计原则](docs/DESIGN_PRINCIPLES.md)，明确人格自主性、记忆边界、媒介适配规则和下一阶段设计路线。
-- 新增第一版 [Persona Kernel schema](docs/PERSONA_KERNEL_SCHEMA.md)，用于结构化、有证据来源的角色定义。
-- 新增 [Memory Item schema](docs/MEMORY_ITEM_SCHEMA.md) 和轻量级 [人格回归测试框架](eval/persona_regression/README.md)。
+- 新增 Vue 一站式控制台，聊天、设置、记忆、训练、LINE/TTS/公网、评测和流程不再挤在一个“更多”按钮里。
+- 新增 Planning 页面：显示设备时间/地点、角色本周日程、当前生活状态、参考资料和临时网络检索。
+- 新增 memory + reflection + planning 层。角色在 role mode 下会收到受限的当前时间、地点和日程上下文，但该上下文不会覆盖 persona kernel 或官方设定。
+- 新增 Persona Anchor Replay：从官方剧情脚本抽取短人格锚点，按 planning 时间块和用户输入选择一个锚点注入 prompt，降低长对话人格退行。
+- 新增单卡常驻后台调度层：planning、记忆快照、释放非活跃模型等轻任务可在空闲窗口运行；需要 LLM 的后台记忆整理默认关闭，必须用户显式允许。
+- 新增受控工具层：`/tools`、`/tools/run`、`/tools/actions` 统一暴露时间、planning、记忆、后台任务、LINE/Tunnel/训练状态等白名单工具，并记录调用日志。
+- 新增 Shiro Bridge：可选读取独立 `shiro/` 项目的 cognitive context，并在聊天后回写 stimulus，前端新增“白”状态页。
+- Shiro M6.3 第一版支持工具意图：PDF 阅读意图和上网搜索解法意图；RoleWeaver 工具层新增 `document.pdf_read`。
+- 每个模型-LoRA-Skill 的 memory scope 会单独保存 `planning/weekly_schedule.json`，每周首次访问自动生成，也可以手动重生成。
+- 新增 LINE Bot 设置、启动/停止和 Cloudflare 临时公网地址生成接口。
+- 更新秦谷美铃 `persona_kernel.json`，补上新范式下的人格自主性、记忆边界、媒介适配和 planning-state 保护。
 
 完整更新公告见 [CHANGELOG.md](CHANGELOG.md)。
 
@@ -30,6 +33,7 @@ RoleWeaver 可以把一个底模、一个可选 LoRA adapter、一个可选角�
 - 遵循明确的设计契约：角色人格自主性优先于角色一致性、长期记忆、任务完成和平台格式适配。详见 [docs/DESIGN_PRINCIPLES.md](docs/DESIGN_PRINCIPLES.md)。
 - 当 `SKILL.md` 旁边存在 `persona_kernel.json` 时会自动加载；普通用户仍然只需要填写一个 `SKILL.md` 路径。
 - 提供早期人格回归测试框架，用于检查角色自主性、媒介适配和记忆边界是否退化。
+- 当 `SKILL.md` 旁边存在 `anchors/anchors.jsonl` 时，运行时会自动加载人格锚点。详见 [docs/ANCHORS.zh-CN.md](docs/ANCHORS.zh-CN.md)。
 
 ## 快速开始
 
@@ -46,7 +50,10 @@ copy roleweaver.config.example.csv roleweaver.config.csv
 - `skill_file` 可选
 - `skill_text` 可选，短内联 skill
 - `quantization_mode` 默认 `4bit`
+- `local_location` 可选，角色 planning 所在地点，例如 `Tokyo, Japan`
 - `ui_language`：`zh`、`ja`、`en`
+- `background_jobs_enabled`：是否启用后台轻任务
+- `background_llm_enabled`：是否允许后台任务调用大模型，单卡常驻建议默认 `false`
 
 启动 Windows 前端：
 
@@ -86,6 +93,7 @@ python local_chat.py --config roleweaver.config.csv
 - 可编辑显示名，且不会重命名 memory 文件夹；
 - 确认后删除历史会话；
 - 退出或关闭页面时整理记忆；
+- 查看和重生成角色本周日程；
 - 使用 Excel、CSV、JSONL 进行本地 LoRA 训练。
 
 ## HTTP API
@@ -166,6 +174,33 @@ python API.py --config roleweaver.config.csv --host 127.0.0.1 --port 8000
 }
 ```
 
+### `GET /planning/{session_id}`
+
+读取当前会话对应的 planning 状态。Planning 按 memory scope 隔离，所以同一底模/LoRA/Skill 组合共享角色生活周计划，不同角色互不污染。
+
+典型响应字段：
+
+- `device_context`：设备当前时间、日期、UTC offset、时区和本地位置；
+- `schedule`：本周角色日程，保存在 `planning/weekly_schedule.json`；
+- `current_context`：会注入到角色 prompt 的受限生活状态文本；
+- `current_anchor`：当前选择的人格锚点；如果没有 `anchors/anchors.jsonl` 则为空；
+- `current_anchor_context`：会注入 prompt 的锚点文本，明确标注不是新记忆；
+- `sources`：生成该类日程时参考的资料来源。
+
+### `POST /planning/{session_id}/regenerate`
+
+强制重生成当前会话 memory scope 的本周角色日程。目录映射不变，只覆盖 `planning/weekly_schedule.json`。
+
+### `GET /planning/search`
+
+临时网络检索接口，用于在 Web 控制台里查找日程、节假日、学校生活等参考资料。
+
+示例：
+
+```text
+/planning/search?q=Japan high school daily schedule club activities&limit=5
+```
+
 ### `GET /config`
 
 读取当前可编辑配置。
@@ -178,6 +213,13 @@ python API.py --config roleweaver.config.csv --host 127.0.0.1 --port 8000
 - `skill_file`
 - `skill_text`
 - `quantization_mode`
+- `local_location`
+- `background_jobs_enabled`
+- `background_llm_enabled`
+- `background_idle_seconds`
+- `background_window_start`
+- `background_window_end`
+- `background_max_minutes`
 - `ui_language`
 
 ### `POST /config`
@@ -193,11 +235,68 @@ python API.py --config roleweaver.config.csv --host 127.0.0.1 --port 8000
   "skill_file": "C:\\roles\\SKILL.md",
   "skill_text": "",
   "quantization_mode": "4bit",
+  "local_location": "Tokyo, Japan",
+  "background_jobs_enabled": true,
+  "background_llm_enabled": false,
+  "background_idle_seconds": 600,
+  "background_window_start": "02:00",
+  "background_window_end": "05:30",
+  "background_max_minutes": 20,
   "ui_language": "zh"
 }
 ```
 
 所有字段都是可选的；未传的字段保持原值。
+
+### `GET /background/status`
+
+读取单卡常驻后台调度器状态。返回 `idle_seconds`、`eligible_non_llm`、`eligible_llm`、`active_job` 和 `recent_jobs`。
+
+### `POST /background/pause`
+
+暂停后台任务。
+
+### `POST /background/resume`
+
+恢复后台任务。
+
+### `POST /background/run-once`
+
+手动运行一次后台任务。`force=true` 可以跳过空闲时间和时间窗限制，但不会绕过 `background_llm_enabled=false`。
+
+```json
+{
+  "job_type": "planning_regenerate",
+  "session_id": "web",
+  "force": true
+}
+```
+
+当前支持 `planning_regenerate`、`memory_os_snapshot`、`memory_consolidation` 和 `release_inactive_models`。
+
+### `GET /tools`
+
+列出工具层当前注册的白名单工具。
+
+### `POST /tools/run`
+
+运行一个工具，并把调用写入 `data/tool_actions/actions.jsonl`。
+
+```json
+{
+  "tool_name": "memory.search",
+  "session_id": "web",
+  "actor": "user",
+  "arguments": {
+    "query": "咖喱",
+    "top_k": 5
+  }
+}
+```
+
+### `GET /tools/actions`
+
+读取最近工具调用。工具层设计见 [docs/TOOL_LAYER.zh-CN.md](docs/TOOL_LAYER.zh-CN.md)。
 
 ### `GET /sessions`
 

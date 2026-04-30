@@ -24,6 +24,8 @@ class ConfigEncodingTestCase(unittest.TestCase):
     def test_model_loader_mode_aliases(self):
         self.assertEqual(normalize_model_loader_mode("causal_lm"), "text")
         self.assertEqual(normalize_model_loader_mode("vlm"), "vision")
+        self.assertEqual(normalize_model_loader_mode("qwen3-omni"), "omni")
+        self.assertEqual(normalize_model_loader_mode("omnimodal"), "omni")
         self.assertEqual(normalize_model_loader_mode("unknown"), "auto")
 
 

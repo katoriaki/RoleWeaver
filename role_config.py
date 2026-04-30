@@ -21,6 +21,21 @@ DEFAULT_QUANTIZATION_MODE = "4bit"
 DEFAULT_DEVICE_MAP_MODE = "gpu"
 DEFAULT_MODEL_LOADER_MODE = "auto"
 DEFAULT_CONTEXT_WINDOW_TOKENS = 0
+DEFAULT_BACKGROUND_JOBS_ENABLED = True
+DEFAULT_BACKGROUND_LLM_ENABLED = False
+DEFAULT_BACKGROUND_IDLE_SECONDS = 600
+DEFAULT_BACKGROUND_WINDOW_START = "02:00"
+DEFAULT_BACKGROUND_WINDOW_END = "05:30"
+DEFAULT_BACKGROUND_MAX_MINUTES = 20
+DEFAULT_AUTONOMOUS_LEARNING_ENABLED = False
+DEFAULT_AUTONOMOUS_LEARNING_SUBJECTS = "mathematics, computer science"
+DEFAULT_AUTONOMOUS_LEARNING_INTERVAL_SECONDS = 1800
+DEFAULT_AUTONOMOUS_LEARNING_USE_MODEL = True
+DEFAULT_AUTONOMOUS_LEARNING_MAX_NEW_TOKENS = 512
+DEFAULT_PRELOAD_MODEL_ON_STARTUP = False
+DEFAULT_SHIRO_ENABLED = False
+DEFAULT_SHIRO_ROOT = str(PROJECT_ROOT / "shiro" / "data" / "roleweaver")
+DEFAULT_SHIRO_IDENTITY = "\u767d"
 DEFAULT_CONFIG_FILENAMES = (
     "roleweaver.config.csv",
     "roleweaver.config.toml",
@@ -101,6 +116,40 @@ def normalize_context_window_tokens(value, default: int = DEFAULT_CONTEXT_WINDOW
     except (TypeError, ValueError):
         normalized = int(default)
     return max(0, normalized)
+
+
+def normalize_bool(value, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    text = str(value).strip().lower()
+    if text in {"1", "true", "yes", "y", "on", "enabled"}:
+        return True
+    if text in {"0", "false", "no", "n", "off", "disabled"}:
+        return False
+    return default
+
+
+def normalize_positive_int(value, default: int, minimum: int = 0) -> int:
+    try:
+        normalized = int(value)
+    except (TypeError, ValueError):
+        normalized = int(default)
+    return max(minimum, normalized)
+
+
+def normalize_hhmm(value, default: str) -> str:
+    text = str(value or "").strip()
+    try:
+        hour_text, minute_text = text.split(":", 1)
+        hour = int(hour_text)
+        minute = int(minute_text)
+    except (TypeError, ValueError):
+        return default
+    if 0 <= hour <= 23 and 0 <= minute <= 59:
+        return f"{hour:02d}:{minute:02d}"
+    return default
 
 
 def _read_text_file(path: Path) -> str:
@@ -243,9 +292,12 @@ def normalize_model_loader_mode(value: Optional[str]) -> str:
         "image-text": "vision",
         "vlm": "vision",
         "multimodal": "vision",
+        "omnimodal": "omni",
+        "qwen3_omni": "omni",
+        "qwen3-omni": "omni",
     }
     normalized = aliases.get(normalized, normalized)
-    if normalized not in {"auto", "text", "vision"}:
+    if normalized not in {"auto", "text", "vision", "omni"}:
         return DEFAULT_MODEL_LOADER_MODE
     return normalized
 
@@ -361,6 +413,22 @@ class RoleConfig:
     device_map_mode: str = DEFAULT_DEVICE_MAP_MODE
     model_loader_mode: str = DEFAULT_MODEL_LOADER_MODE
     context_window_tokens: int = DEFAULT_CONTEXT_WINDOW_TOKENS
+    local_location: str = "Tokyo, Japan"
+    background_jobs_enabled: bool = DEFAULT_BACKGROUND_JOBS_ENABLED
+    background_llm_enabled: bool = DEFAULT_BACKGROUND_LLM_ENABLED
+    background_idle_seconds: int = DEFAULT_BACKGROUND_IDLE_SECONDS
+    background_window_start: str = DEFAULT_BACKGROUND_WINDOW_START
+    background_window_end: str = DEFAULT_BACKGROUND_WINDOW_END
+    background_max_minutes: int = DEFAULT_BACKGROUND_MAX_MINUTES
+    autonomous_learning_enabled: bool = DEFAULT_AUTONOMOUS_LEARNING_ENABLED
+    autonomous_learning_subjects: str = DEFAULT_AUTONOMOUS_LEARNING_SUBJECTS
+    autonomous_learning_interval_seconds: int = DEFAULT_AUTONOMOUS_LEARNING_INTERVAL_SECONDS
+    autonomous_learning_use_model: bool = DEFAULT_AUTONOMOUS_LEARNING_USE_MODEL
+    autonomous_learning_max_new_tokens: int = DEFAULT_AUTONOMOUS_LEARNING_MAX_NEW_TOKENS
+    preload_model_on_startup: bool = DEFAULT_PRELOAD_MODEL_ON_STARTUP
+    shiro_enabled: bool = DEFAULT_SHIRO_ENABLED
+    shiro_root: str = DEFAULT_SHIRO_ROOT
+    shiro_identity: str = DEFAULT_SHIRO_IDENTITY
     system_prompt: str = DEFAULT_ROLE_SYSTEM_PROMPT
     normal_system_prompt: str = NORMAL_SYSTEM_PROMPT
     memory_judge_system_prompt: str = DEFAULT_MEMORY_JUDGE_SYSTEM_PROMPT
@@ -427,6 +495,73 @@ class RoleConfig:
             context_window_tokens=normalize_context_window_tokens(
                 pick("context_window_tokens", "ROLEWEAVER_CONTEXT_WINDOW_TOKENS", DEFAULT_CONTEXT_WINDOW_TOKENS)
             ),
+            local_location=pick("local_location", "ROLEWEAVER_LOCAL_LOCATION", "Tokyo, Japan"),
+            background_jobs_enabled=normalize_bool(
+                pick("background_jobs_enabled", "ROLEWEAVER_BACKGROUND_JOBS_ENABLED", DEFAULT_BACKGROUND_JOBS_ENABLED),
+                DEFAULT_BACKGROUND_JOBS_ENABLED,
+            ),
+            background_llm_enabled=normalize_bool(
+                pick("background_llm_enabled", "ROLEWEAVER_BACKGROUND_LLM_ENABLED", DEFAULT_BACKGROUND_LLM_ENABLED),
+                DEFAULT_BACKGROUND_LLM_ENABLED,
+            ),
+            background_idle_seconds=normalize_positive_int(
+                pick("background_idle_seconds", "ROLEWEAVER_BACKGROUND_IDLE_SECONDS", DEFAULT_BACKGROUND_IDLE_SECONDS),
+                DEFAULT_BACKGROUND_IDLE_SECONDS,
+            ),
+            background_window_start=normalize_hhmm(
+                pick("background_window_start", "ROLEWEAVER_BACKGROUND_WINDOW_START", DEFAULT_BACKGROUND_WINDOW_START),
+                DEFAULT_BACKGROUND_WINDOW_START,
+            ),
+            background_window_end=normalize_hhmm(
+                pick("background_window_end", "ROLEWEAVER_BACKGROUND_WINDOW_END", DEFAULT_BACKGROUND_WINDOW_END),
+                DEFAULT_BACKGROUND_WINDOW_END,
+            ),
+            background_max_minutes=normalize_positive_int(
+                pick("background_max_minutes", "ROLEWEAVER_BACKGROUND_MAX_MINUTES", DEFAULT_BACKGROUND_MAX_MINUTES),
+                DEFAULT_BACKGROUND_MAX_MINUTES,
+                minimum=1,
+            ),
+            autonomous_learning_enabled=normalize_bool(
+                pick("autonomous_learning_enabled", "ROLEWEAVER_AUTONOMOUS_LEARNING_ENABLED", DEFAULT_AUTONOMOUS_LEARNING_ENABLED),
+                DEFAULT_AUTONOMOUS_LEARNING_ENABLED,
+            ),
+            autonomous_learning_subjects=pick(
+                "autonomous_learning_subjects",
+                "ROLEWEAVER_AUTONOMOUS_LEARNING_SUBJECTS",
+                DEFAULT_AUTONOMOUS_LEARNING_SUBJECTS,
+            ),
+            autonomous_learning_interval_seconds=normalize_positive_int(
+                pick(
+                    "autonomous_learning_interval_seconds",
+                    "ROLEWEAVER_AUTONOMOUS_LEARNING_INTERVAL_SECONDS",
+                    DEFAULT_AUTONOMOUS_LEARNING_INTERVAL_SECONDS,
+                ),
+                DEFAULT_AUTONOMOUS_LEARNING_INTERVAL_SECONDS,
+                minimum=60,
+            ),
+            autonomous_learning_use_model=normalize_bool(
+                pick("autonomous_learning_use_model", "ROLEWEAVER_AUTONOMOUS_LEARNING_USE_MODEL", DEFAULT_AUTONOMOUS_LEARNING_USE_MODEL),
+                DEFAULT_AUTONOMOUS_LEARNING_USE_MODEL,
+            ),
+            autonomous_learning_max_new_tokens=normalize_positive_int(
+                pick(
+                    "autonomous_learning_max_new_tokens",
+                    "ROLEWEAVER_AUTONOMOUS_LEARNING_MAX_NEW_TOKENS",
+                    DEFAULT_AUTONOMOUS_LEARNING_MAX_NEW_TOKENS,
+                ),
+                DEFAULT_AUTONOMOUS_LEARNING_MAX_NEW_TOKENS,
+                minimum=64,
+            ),
+            preload_model_on_startup=normalize_bool(
+                pick("preload_model_on_startup", "ROLEWEAVER_PRELOAD_MODEL_ON_STARTUP", DEFAULT_PRELOAD_MODEL_ON_STARTUP),
+                DEFAULT_PRELOAD_MODEL_ON_STARTUP,
+            ),
+            shiro_enabled=normalize_bool(
+                pick("shiro_enabled", "ROLEWEAVER_SHIRO_ENABLED", DEFAULT_SHIRO_ENABLED),
+                DEFAULT_SHIRO_ENABLED,
+            ),
+            shiro_root=pick("shiro_root", "ROLEWEAVER_SHIRO_ROOT", DEFAULT_SHIRO_ROOT),
+            shiro_identity=pick("shiro_identity", "ROLEWEAVER_SHIRO_IDENTITY", DEFAULT_SHIRO_IDENTITY),
             system_prompt=pick("system_prompt", "ROLEWEAVER_SYSTEM_PROMPT", DEFAULT_ROLE_SYSTEM_PROMPT),
             normal_system_prompt=pick("normal_system_prompt", "ROLEWEAVER_NORMAL_SYSTEM_PROMPT", NORMAL_SYSTEM_PROMPT),
             skill_file=skill_file,

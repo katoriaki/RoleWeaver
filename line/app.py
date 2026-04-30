@@ -50,6 +50,7 @@ CONTACTS_PATH = DATA_DIR / "line_contacts.json"
 WAKEUP_STATE_PATH = DATA_DIR / "line_wakeup_state.json"
 DEFAULT_AUDIO_DIR = DATA_DIR / "line_audio"
 DEFAULT_IMAGE_DIR = DATA_DIR / "line_images"
+DEFAULT_SURFACE_POLICY_PATH = LINE_DIR / "surface_policy.json"
 load_dotenv(LINE_DIR / ".env", override=False)
 load_dotenv(override=False)
 
@@ -87,7 +88,7 @@ def _env_int(name: str, default: int) -> int:
 
 
 def line_max_new_tokens() -> int:
-    value = _env_int("ROLEWEAVER_LINE_MAX_NEW_TOKENS", 192)
+    value = _policy_int("ROLEWEAVER_LINE_MAX_NEW_TOKENS", "line", "max_new_tokens", default=192)
     return max(16, min(4096, value))
 
 
@@ -115,6 +116,59 @@ def _json_load(path: Path, default):
 def _json_save(path: Path, payload) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+@lru_cache(maxsize=1)
+def load_surface_policy() -> dict:
+    path_text = os.getenv("ROLEWEAVER_SURFACE_POLICY_FILE", "").strip()
+    path = Path(path_text) if path_text else DEFAULT_SURFACE_POLICY_PATH
+    policy = _json_load(path, {})
+    return policy if isinstance(policy, dict) else {}
+
+
+def surface_policy_value(*keys: str, default=None):
+    current = load_surface_policy()
+    for key in keys:
+        if not isinstance(current, dict) or key not in current:
+            return default
+        current = current[key]
+    return current
+
+
+def _policy_bool(env_name: str, *keys: str, default: bool = False) -> bool:
+    if os.getenv(env_name) is not None:
+        return _truthy_env(env_name, default=default)
+    value = surface_policy_value(*keys, default=default)
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return bool(value) if value is not None else default
+
+
+def _policy_str(env_name: str, *keys: str, default: str = "") -> str:
+    value = os.getenv(env_name)
+    if value is not None:
+        return value
+    policy_value = surface_policy_value(*keys, default=default)
+    return str(policy_value if policy_value is not None else default)
+
+
+def _policy_int(env_name: str, *keys: str, default: int) -> int:
+    if os.getenv(env_name) is not None:
+        return _env_int(env_name, default)
+    try:
+        return int(surface_policy_value(*keys, default=default))
+    except (TypeError, ValueError):
+        return default
+
+
+def _policy_markers(kind: str, fallback: tuple[str, ...]) -> tuple[str, ...]:
+    values = surface_policy_value("line", "voice", kind, default=None)
+    if isinstance(values, list):
+        markers = tuple(str(item).strip().lower() for item in values if str(item).strip())
+        return fallback + markers
+    return fallback
 
 
 @lru_cache(maxsize=1)
@@ -192,7 +246,10 @@ def remember_contact(source, wakeup_enabled: Optional[bool] = None) -> Optional[
     if wakeup_enabled is not None:
         item["wakeup_enabled"] = wakeup_enabled
     else:
-        item.setdefault("wakeup_enabled", _truthy_env("ROLEWEAVER_WAKEUP_AUTO_SUBSCRIBE", False))
+        item.setdefault(
+            "wakeup_enabled",
+            _policy_bool("ROLEWEAVER_WAKEUP_AUTO_SUBSCRIBE", "line", "wake_up", "auto_subscribe", default=False),
+        )
     contacts[key] = item
     _json_save(CONTACTS_PATH, payload)
     return key
@@ -208,6 +265,8 @@ def split_reply_text(text: str, chunk_size: int = 4500) -> list[str]:
     text = (text or "").strip()
     if not text:
         return ["..."]
+    if chunk_size == 4500:
+        chunk_size = max(500, min(5000, _policy_int("ROLEWEAVER_LINE_REPLY_CHUNK_SIZE", "line", "reply_chunk_size", default=4500)))
     return [text[i:i + chunk_size] for i in range(0, len(text), chunk_size)]
 
 
@@ -279,15 +338,33 @@ def _time_in_window(now: datetime, start: tuple[int, int], end: tuple[int, int])
 
 
 def _voice_text_only_window_active(now: Optional[datetime] = None) -> bool:
-    if not _truthy_env("ROLEWEAVER_VOICE_TEXT_ONLY_WINDOW_ENABLED", default=False):
+    if not _policy_bool(
+        "ROLEWEAVER_VOICE_TEXT_ONLY_WINDOW_ENABLED",
+        "line",
+        "voice",
+        "text_only_window_enabled",
+        default=False,
+    ):
         return False
-    timezone_name = os.getenv("ROLEWEAVER_VOICE_TEXT_ONLY_TIMEZONE") or os.getenv(
-        "ROLEWEAVER_WAKEUP_TIMEZONE", "Asia/Tokyo"
+    timezone_name = _policy_str(
+        "ROLEWEAVER_VOICE_TEXT_ONLY_TIMEZONE",
+        "line",
+        "voice",
+        "timezone",
+        default=_policy_str("ROLEWEAVER_WAKEUP_TIMEZONE", "line", "wake_up", "timezone", default="Asia/Tokyo"),
     )
     tz = ZoneInfo(timezone_name)
     current = now.astimezone(tz) if now else datetime.now(tz)
-    start = _parse_hhmm(os.getenv("ROLEWEAVER_VOICE_TEXT_ONLY_START", "08:00"), 8, 0)
-    end = _parse_hhmm(os.getenv("ROLEWEAVER_VOICE_TEXT_ONLY_END", "17:30"), 17, 30)
+    start = _parse_hhmm(
+        _policy_str("ROLEWEAVER_VOICE_TEXT_ONLY_START", "line", "voice", "text_only_start", default="08:00"),
+        8,
+        0,
+    )
+    end = _parse_hhmm(
+        _policy_str("ROLEWEAVER_VOICE_TEXT_ONLY_END", "line", "voice", "text_only_end", default="17:30"),
+        17,
+        30,
+    )
     return _time_in_window(current, start, end)
 
 
@@ -308,6 +385,7 @@ def _voice_rejected(user_text: str) -> bool:
         "no audio",
         "text only",
     )
+    negative_markers = _policy_markers("reject_markers", negative_markers)
     return any(marker in text for marker in negative_markers)
 
 
@@ -340,17 +418,25 @@ def _voice_requested_once(user_text: str) -> bool:
         "read aloud",
         "read it aloud",
     )
+    positive_markers = _policy_markers("request_markers", positive_markers)
     return any(marker in text for marker in positive_markers)
 
 
 def should_use_voice_reply(user_text: str, now: Optional[datetime] = None) -> bool:
     if _voice_rejected(user_text):
         return False
-    if _voice_requested_once(user_text):
+    allow_once = _policy_bool(
+        "ROLEWEAVER_VOICE_ALLOW_ON_REQUEST",
+        "line",
+        "voice",
+        "allow_voice_on_request",
+        default=True,
+    )
+    if allow_once and _voice_requested_once(user_text):
         return True
     if _voice_text_only_window_active(now):
         return False
-    return _truthy_env("ROLEWEAVER_REPLY_VOICE", default=False)
+    return _policy_bool("ROLEWEAVER_REPLY_VOICE", "line", "voice", "reply_voice", default=False)
 
 
 def send_chat_reply(reply_token: str, text: str, target_key: str, user_text: str):
@@ -374,9 +460,11 @@ def _line_image_dir() -> Path:
 
 
 def _line_image_prompt() -> str:
-    return os.getenv(
+    return _policy_str(
         "ROLEWEAVER_LINE_IMAGE_PROMPT",
-        "请看这张图片，并用当前角色的语气像 LINE 聊天一样短一点、自然回应。不要机械描述，只抓用户可能想让你注意的重点。",
+        "line",
+        "image_prompt",
+        default="请看这张图片，并用当前角色的语气像 LINE 聊天一样短一点、自然回应。不要机械描述，只抓用户可能想让你注意的重点。",
     )
 
 
@@ -506,18 +594,24 @@ def synthesize_line_audio(text: str, target_key: str) -> Optional[tuple[str, int
 
 
 def build_wakeup_text(target_key: str) -> str:
-    prompt = os.getenv(
+    prompt = _policy_str(
         "ROLEWEAVER_WAKEUP_PROMPT",
-        "现在是早上7点。请作为秦谷美鈴，用日语轻轻叫醒制作人。短一点，像真人发来的早安，不要解释。",
+        "line",
+        "wake_up",
+        "prompt",
+        default="现在是早上7点。请作为秦谷美鈴，用日语轻轻叫醒制作人。短一点，像真人发来的早安，不要解释。",
     )
     try:
         return get_chat_service().chat_once(user_text=prompt, session_id=f"wakeup_{target_key}")
     except Exception:
         print("[RoleWeaver LINE] Wake-up text generation failed:")
         traceback.print_exc()
-        return os.getenv(
+        return _policy_str(
             "ROLEWEAVER_WAKEUP_FALLBACK_TEXT",
-            "あら……プロデューサー。朝ですよ。少しだけ目を開けてください。私、ここにいますから。",
+            "line",
+            "wake_up",
+            "fallback_text",
+            default="あら……プロデューサー。朝ですよ。少しだけ目を開けてください。私、ここにいますから。",
         )
 
 
@@ -539,7 +633,7 @@ async def send_wakeup_pushes():
     if not contacts:
         print("[RoleWeaver LINE] Wake-up skipped: no subscribed contacts. Send /wake on in LINE first.")
         return
-    voice_enabled = _truthy_env("ROLEWEAVER_WAKEUP_VOICE", default=False)
+    voice_enabled = _policy_bool("ROLEWEAVER_WAKEUP_VOICE", "line", "wake_up", "voice", default=False)
     for contact in contacts:
         target_key = contact["key"]
         to = contact["to"]
@@ -558,7 +652,7 @@ async def send_wakeup_pushes():
 
 
 def _next_wakeup_datetime(now: datetime) -> datetime:
-    time_text = os.getenv("ROLEWEAVER_WAKEUP_TIME", "07:00")
+    time_text = _policy_str("ROLEWEAVER_WAKEUP_TIME", "line", "wake_up", "time", default="07:00")
     try:
         hour_text, minute_text = time_text.split(":", 1)
         hour = int(hour_text)
@@ -572,7 +666,7 @@ def _next_wakeup_datetime(now: datetime) -> datetime:
 
 
 async def wakeup_loop():
-    timezone_name = os.getenv("ROLEWEAVER_WAKEUP_TIMEZONE", "Asia/Tokyo")
+    timezone_name = _policy_str("ROLEWEAVER_WAKEUP_TIMEZONE", "line", "wake_up", "timezone", default="Asia/Tokyo")
     tz = ZoneInfo(timezone_name)
     while True:
         now = datetime.now(tz)
@@ -613,7 +707,7 @@ async def health():
 @app.on_event("startup")
 async def startup_event():
     global _wakeup_task
-    if _truthy_env("ROLEWEAVER_WAKEUP_ENABLED", default=False):
+    if _policy_bool("ROLEWEAVER_WAKEUP_ENABLED", "line", "wake_up", "enabled", default=False):
         _wakeup_task = asyncio.create_task(wakeup_loop())
 
 

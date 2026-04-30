@@ -29,14 +29,17 @@ def main() -> int:
     env = os.environ.copy()
     env.pop("PYTHONPATH", None)
     env.pop("PYTHONHOME", None)
+    env["PYTHONNOUSERSITE"] = "1"
     env.setdefault("PYTHONUTF8", "1")
     env.setdefault("language", "zh_CN")
     env["GPT_SOVITS_HOME"] = str(ROOT)
     config_spec = importlib.util.spec_from_file_location("config", ROOT / "config.py")
 
+    device = os.getenv("ROLEWEAVER_TTS_DEVICE", "cuda").strip() or "cuda"
+
     cmd = [
         str(PYTHON),
-        "api.py",
+        str(ROOT / "run_local_api.py"),
         "-s",
         str(SOVITS),
         "-g",
@@ -46,15 +49,21 @@ def main() -> int:
         "-p",
         "9880",
         "-d",
-        "cuda",
+        device,
         "-mt",
         "wav",
     ]
+    if device.lower() == "cpu":
+        cmd.append("-fp")
+        env["is_half"] = "False"
+    else:
+        env.setdefault("is_half", "True")
 
     print(f"[RoleWeaver TTS] Working directory: {ROOT}")
     print(f"[RoleWeaver TTS] Python: {PYTHON}")
     print(f"[RoleWeaver TTS] SoVITS: {SOVITS}")
     print(f"[RoleWeaver TTS] GPT: {GPT}")
+    print(f"[RoleWeaver TTS] Device: {device}")
     print(f"[RoleWeaver TTS] Config: {config_spec.origin if config_spec else ROOT / 'config.py'}")
     print("[RoleWeaver TTS] API: http://127.0.0.1:9880/")
     print("[RoleWeaver TTS] Press Ctrl+C to stop.")

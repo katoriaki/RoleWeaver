@@ -95,6 +95,12 @@ EPISODIC_STALE_DAYS = 90
 EPISODIC_ARCHIVE_DAYS = 120
 PREFERENCE_STALE_DAYS = 180
 LOW_CONFIDENCE_THRESHOLD = 0.42
+REINFORCEMENT_MAX_SCORE = 1.0
+REINFORCEMENT_CONTEXT_AMOUNT = 0.06
+AMEM_EVOLUTION_MAX_EVENTS = 8
+AMEM_EVOLUTION_SCORE_THRESHOLD = 0.10
+AMEM_TOPIC_MAX_LABELS = 8
+AMEM_RETRIEVAL_ALIAS_MAX = 8
 
 
 MISUZU_KNOWLEDGE_SEED = []
@@ -132,6 +138,29 @@ def memory_age_days(memory: Dict[str, Any], reference_ts: Optional[int] = None) 
     if not timestamp:
         return 0.0
     return max(0.0, (reference_ts - int(timestamp)) / 86400.0)
+
+
+def normalize_reinforcement_score(value) -> float:
+    try:
+        score = float(value)
+    except (TypeError, ValueError):
+        score = 0.0
+    return max(0.0, min(REINFORCEMENT_MAX_SCORE, score))
+
+
+def normalize_use_count(value) -> int:
+    try:
+        return max(0, int(value or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def memory_reinforcement_bonus(memory: Dict[str, Any]) -> float:
+    score = normalize_reinforcement_score(memory.get("reinforcement_score", 0.0))
+    use_count = normalize_use_count(memory.get("use_count", 0))
+    usage_bonus = min(0.045, 0.014 * math.log1p(use_count))
+    recent_use_bonus = 0.55 * recency_bonus(memory.get("last_used_at"), horizon_days=14.0)
+    return min(0.12, 0.075 * score + usage_bonus + recent_use_bonus)
 
 
 MEMORY_SOURCE_ALIASES = {
@@ -420,6 +449,215 @@ def detect_memory_contradictions(
     return hits[:max_results]
 
 
+def detect_related_memory_links(
+    new_content: str,
+    new_tags: List[str],
+    existing_memories: List[Dict],
+    *,
+    min_score: float = 0.10,
+    max_results: int = 4,
+) -> List[Dict[str, Any]]:
+    new_content = (new_content or "").strip()
+    if not new_content:
+        return []
+    tag_set = {normalize_for_match(tag) for tag in (new_tags or []) if str(tag).strip()}
+    hits: List[Dict[str, Any]] = []
+    for memory in existing_memories or []:
+        if memory.get("status", "active") != "active":
+            continue
+        if is_protected_character_memory(memory):
+            continue
+        old_content = str(memory.get("content", "")).strip()
+        if not old_content:
+            continue
+        if normalize_for_match(old_content) == normalize_for_match(new_content):
+            continue
+
+        score = lexical_score(new_content, old_content)
+        old_tags = {normalize_for_match(tag) for tag in memory.get("tags", []) if str(tag).strip()}
+        tag_overlap = len(tag_set & old_tags)
+        if tag_overlap:
+            score += min(0.12, 0.04 * tag_overlap)
+        if score < min_score:
+            continue
+
+        hits.append({
+            "memory_id": int(memory.get("id", 0)),
+            "score": round(float(score), 4),
+            "reason": "auto_memory_linking: new memory overlaps with this active memory.",
+            "evidence": [
+                f"old_memory:{memory.get('id')}",
+                f"new_text:{compact_text(new_content, 72)}",
+            ],
+            "memory": memory,
+        })
+
+    hits.sort(key=lambda item: item["score"], reverse=True)
+    return hits[:max_results]
+
+
+def build_amem_evolution_interpretation(old_memory: Dict[str, Any], new_memory: Dict[str, Any]) -> str:
+    old_text = compact_text(old_memory.get("content", ""), 72)
+    new_text = compact_text(new_memory.get("content", ""), 72)
+    old_type = old_memory.get("memory_type") or old_memory.get("category") or "memory"
+    new_type = new_memory.get("memory_type") or new_memory.get("category") or "memory"
+    return (
+        f"A-Mem evolution: older {old_type} memory should now be interpreted together with "
+        f"newer {new_type} memory #{new_memory.get('id')}. Older note: {old_text}. "
+        f"New evidence/context: {new_text}."
+    )
+
+
+def _amem_label_candidates(memory: Dict[str, Any]) -> List[str]:
+    candidates: List[str] = []
+    for key in ("memory_type", "memory_layer", "category", "source_kind"):
+        value = str(memory.get(key, "") or "").strip()
+        if value:
+            candidates.append(value)
+    for tag in memory.get("tags", []) or []:
+        value = str(tag or "").strip()
+        if value:
+            candidates.append(value)
+    return candidates
+
+
+def normalize_amem_labels(*memories: Dict[str, Any], limit: int = AMEM_TOPIC_MAX_LABELS) -> List[str]:
+    labels: List[str] = []
+    seen: Set[str] = set()
+    for memory in memories:
+        for value in _amem_label_candidates(memory):
+            label = re.sub(r"\s+", "_", value.strip().lower())
+            label = re.sub(r"[^0-9a-zA-Z_\-\u4e00-\u9fff\u3040-\u30ff]+", "", label)
+            if not label:
+                continue
+            if label in {"chat", "conversation", "unknown", "none"}:
+                continue
+            if label not in seen:
+                seen.add(label)
+                labels.append(label)
+            if len(labels) >= limit:
+                return labels
+    return labels
+
+
+def build_amem_cluster_key(labels: List[str]) -> str:
+    if not labels:
+        return "general"
+    return "::".join(labels[:3])
+
+
+def build_amem_retrieval_aliases(
+    old_memory: Dict[str, Any],
+    new_memory: Dict[str, Any],
+    labels: List[str],
+) -> List[str]:
+    aliases: List[str] = []
+    aliases.extend(labels[:AMEM_RETRIEVAL_ALIAS_MAX])
+    for memory in (old_memory, new_memory):
+        text = compact_text(memory.get("content", ""), 56)
+        if text:
+            aliases.append(text)
+    return append_unique_texts([], aliases)[:AMEM_RETRIEVAL_ALIAS_MAX]
+
+
+def build_amem_structured_note(
+    old_memory: Dict[str, Any],
+    new_memory: Dict[str, Any],
+    score: float,
+) -> Dict[str, Any]:
+    labels = normalize_amem_labels(old_memory, new_memory)
+    old_type = old_memory.get("memory_type") or old_memory.get("category") or "memory"
+    new_type = new_memory.get("memory_type") or new_memory.get("category") or "memory"
+    relationship_strength = max(0.0, min(1.0, float(score or 0.0)))
+    stability = "stable" if relationship_strength >= 0.34 else "tentative"
+    if old_memory.get("memory_type") in {"preference", "relationship"}:
+        stability = "stable" if relationship_strength >= 0.22 else stability
+
+    return {
+        "cluster_key": build_amem_cluster_key(labels),
+        "topic_labels": labels,
+        "relationship_strength": round(relationship_strength, 4),
+        "stability": stability,
+        "retrieval_aliases": build_amem_retrieval_aliases(old_memory, new_memory, labels),
+        "interpretation_delta": (
+            f"New {new_type} memory #{new_memory.get('id')} should refine older {old_type} memory "
+            f"#{old_memory.get('id')} instead of replacing it."
+        ),
+        "evolution_summary": (
+            f"{compact_text(old_memory.get('content', ''), 72)} | "
+            f"updated_by #{new_memory.get('id')}: {compact_text(new_memory.get('content', ''), 72)}"
+        ),
+    }
+
+
+def append_amem_evolution_event(
+    old_memory: Dict[str, Any],
+    new_memory: Dict[str, Any],
+    link_hit: Optional[Dict[str, Any]] = None,
+) -> bool:
+    if is_protected_character_memory(old_memory):
+        return False
+    if old_memory.get("status", "active") != "active":
+        return False
+    old_id = int(old_memory.get("id", 0))
+    new_id = int(new_memory.get("id", 0))
+    if old_id <= 0 or new_id <= 0 or old_id == new_id:
+        return False
+
+    metadata = old_memory.get("metadata")
+    if not isinstance(metadata, dict):
+        metadata = {}
+    amem = metadata.get("amem")
+    if not isinstance(amem, dict):
+        amem = {}
+    events = amem.get("evolution_events")
+    if not isinstance(events, list):
+        events = []
+    if any(int(event.get("new_memory_id", 0)) == new_id for event in events if isinstance(event, dict)):
+        return False
+
+    score = float((link_hit or {}).get("score", 0.0) or 0.0)
+    note = build_amem_structured_note(old_memory, new_memory, score)
+    event = {
+        "at": now_ts(),
+        "new_memory_id": new_id,
+        "score": round(score, 4),
+        "reason": "amem_old_memory_evolution: newer linked memory refined the interpretation of this older memory.",
+        "new_memory_type": new_memory.get("memory_type"),
+        "new_memory_layer": new_memory.get("memory_layer"),
+        "new_memory_tags": list(new_memory.get("tags", []))[:8],
+        "new_memory_excerpt": compact_text(new_memory.get("content", ""), 96),
+        "topic_labels": note["topic_labels"],
+        "cluster_key": note["cluster_key"],
+        "relationship_strength": note["relationship_strength"],
+        "interpretation_delta": note["interpretation_delta"],
+    }
+    events.append(event)
+    amem["evolution_events"] = events[-AMEM_EVOLUTION_MAX_EVENTS:]
+    amem["evolved_by"] = normalize_memory_refs(amem.get("evolved_by", [])) + [new_id]
+    amem["evolved_by"] = normalize_memory_refs(amem["evolved_by"])[-AMEM_EVOLUTION_MAX_EVENTS:]
+    amem["last_evolved_at"] = event["at"]
+    amem["current_interpretation"] = build_amem_evolution_interpretation(old_memory, new_memory)
+    amem["cluster_key"] = note["cluster_key"]
+    amem["topic_labels"] = note["topic_labels"]
+    amem["relationship_strength"] = note["relationship_strength"]
+    amem["stability"] = note["stability"]
+    amem["retrieval_aliases"] = note["retrieval_aliases"]
+    amem["evolution_summary"] = note["evolution_summary"]
+    amem["policy"] = "non_destructive_metadata_only"
+    metadata["amem"] = amem
+    metadata["last_evolution_reason"] = event["reason"]
+    old_memory["metadata"] = metadata
+    old_memory["evidence"] = append_unique_texts(
+        old_memory.get("evidence"),
+        [f"amem_evolved_by:{new_id}"],
+    )
+    old_memory["reinforcement_score"] = normalize_reinforcement_score(
+        normalize_reinforcement_score(old_memory.get("reinforcement_score", 0.0)) + min(0.08, 0.02 + score * 0.10)
+    )
+    return True
+
+
 def is_protected_character_memory(memory: Dict[str, Any]) -> bool:
     return (
         memory.get("scope") == "character_canon"
@@ -441,6 +679,10 @@ def memory_decay_update(memory: Dict[str, Any], reference_ts: Optional[int] = No
     confidence = float(memory.get("confidence", 0.65))
     importance = int(memory.get("importance", 3))
     age_days = memory_age_days(memory, reference_ts=reference_ts)
+    is_reinforced = (
+        normalize_use_count(memory.get("use_count", 0)) >= 3
+        or normalize_reinforcement_score(memory.get("reinforcement_score", 0.0)) >= 0.18
+    )
 
     valid_until_ts = parse_memory_time(memory.get("valid_until"))
     if status == "active" and valid_until_ts is not None and valid_until_ts < (reference_ts or now_ts()):
@@ -452,6 +694,8 @@ def memory_decay_update(memory: Dict[str, Any], reference_ts: Optional[int] = No
         }
 
     if status == "active" and memory_type in {"episodic", "summary"}:
+        if is_reinforced:
+            return None
         if importance <= 1 and confidence <= LOW_CONFIDENCE_THRESHOLD and age_days >= EPISODIC_ARCHIVE_DAYS:
             return {
                 "status": "archived",
@@ -468,6 +712,8 @@ def memory_decay_update(memory: Dict[str, Any], reference_ts: Optional[int] = No
             }
 
     if status == "active" and memory_type == "preference":
+        if is_reinforced:
+            return None
         if confidence <= LOW_CONFIDENCE_THRESHOLD and age_days >= PREFERENCE_STALE_DAYS:
             return {
                 "status": "stale",
@@ -484,6 +730,83 @@ def memory_decay_update(memory: Dict[str, Any], reference_ts: Optional[int] = No
         }
 
     return None
+
+
+def memory_lifecycle_view(memory: Dict[str, Any], reference_ts: Optional[int] = None) -> Dict[str, Any]:
+    reference_ts = reference_ts or now_ts()
+    status = str(memory.get("status", "active"))
+    age_days = round(memory_age_days(memory, reference_ts=reference_ts), 2)
+    protected = is_protected_character_memory(memory)
+    use_count = normalize_use_count(memory.get("use_count", 0))
+    reinforcement_score = normalize_reinforcement_score(memory.get("reinforcement_score", 0.0))
+    reinforced = use_count >= 3 or reinforcement_score >= 0.18
+    pending_decay = memory_decay_update(memory, reference_ts=reference_ts)
+    valid_until_ts = parse_memory_time(memory.get("valid_until"))
+
+    explanations = []
+    if protected:
+        explanations.append("Protected character/skill/reference memory; automatic decay and user-memory linking are blocked.")
+    if reinforced:
+        explanations.append("Repeated contextual use protects this memory from low-value aging decay.")
+    if use_count > 0:
+        explanations.append(f"Used in generated context {use_count} time(s).")
+    if memory.get("links"):
+        explanations.append(f"Linked to {len(normalize_memory_refs(memory.get('links')))} related memory item(s).")
+    metadata = memory.get("metadata")
+    amem = metadata.get("amem") if isinstance(metadata, dict) else None
+    amem_events = amem.get("evolution_events") if isinstance(amem, dict) else []
+    if isinstance(amem_events, list) and amem_events:
+        explanations.append(f"A-Mem evolution recorded {len(amem_events)} interpretation update(s).")
+        if isinstance(amem, dict) and amem.get("stability"):
+            explanations.append(f"A-Mem structured note stability is {amem.get('stability')}.")
+    if memory.get("contradicts"):
+        explanations.append("This memory contradicts older memory items.")
+    if status == "contradicted":
+        explanations.append("Marked as contradicted; excluded from normal retrieval.")
+    elif status != "active":
+        explanations.append(f"Marked as {status}; excluded from normal active retrieval.")
+    if pending_decay:
+        target_status = pending_decay.get("status", status)
+        explanations.append(f"Next maintenance would update this memory toward {target_status}.")
+    elif status == "active" and not protected:
+        explanations.append("No lifecycle action is currently pending.")
+
+    if protected:
+        decay_risk = "protected"
+    elif status != "active":
+        decay_risk = "inactive"
+    elif pending_decay:
+        decay_risk = "pending"
+    elif reinforced:
+        decay_risk = "low"
+    elif age_days >= EPISODIC_STALE_DAYS:
+        decay_risk = "watch"
+    else:
+        decay_risk = "normal"
+
+    valid_until_state = "none"
+    if valid_until_ts is not None:
+        valid_until_state = "expired" if valid_until_ts < reference_ts else "scheduled"
+
+    return {
+        "status": status,
+        "age_days": age_days,
+        "protected": protected,
+        "reinforced": reinforced,
+        "use_count": use_count,
+        "reinforcement_score": round(reinforcement_score, 4),
+        "last_used_at": memory.get("last_used_at"),
+        "valid_until_state": valid_until_state,
+        "decay_risk": decay_risk,
+        "pending_decay": pending_decay or None,
+        "amem_evolution_count": len(amem_events) if isinstance(amem_events, list) else 0,
+        "amem_current_interpretation": amem.get("current_interpretation") if isinstance(amem, dict) else "",
+        "amem_cluster_key": amem.get("cluster_key") if isinstance(amem, dict) else "",
+        "amem_topic_labels": amem.get("topic_labels", []) if isinstance(amem, dict) else [],
+        "amem_relationship_strength": amem.get("relationship_strength") if isinstance(amem, dict) else None,
+        "amem_stability": amem.get("stability") if isinstance(amem, dict) else "",
+        "explanations": explanations,
+    }
 
 
 def recency_bonus(timestamp: Optional[int], horizon_days: float = 30.0) -> float:
@@ -954,9 +1277,14 @@ class HybridMemoryStore:
                 "valid_until": item.get("valid_until"),
                 "status": item.get("status", "active"),
                 "confidence": normalize_memory_confidence({"confidence": item.get("confidence", metadata.get("confidence", 0.65))}),
+                "use_count": normalize_use_count(item.get("use_count", metadata.get("use_count", 0))),
+                "last_used_at": parse_memory_time(item.get("last_used_at", metadata.get("last_used_at"))),
+                "reinforcement_score": normalize_reinforcement_score(
+                    item.get("reinforcement_score", metadata.get("reinforcement_score", 0.0))
+                ),
                 "reason": item.get("reason", metadata.get("reason", "")),
                 "evidence": normalize_memory_evidence_list(item.get("evidence")) or normalize_memory_evidence(metadata, normalized_source),
-                "links": item.get("links", []),
+                "links": normalize_memory_refs(item.get("links", [])),
                 "contradicts": normalize_memory_refs(item.get("contradicts", [])),
                 "metadata": metadata,
                 "category": item.get("category", "episodic"),
@@ -971,7 +1299,25 @@ class HybridMemoryStore:
     def _indexable_text(self, memory: Dict) -> str:
         tags = " ".join(memory.get("tags", []))
         category = memory.get("category", "")
-        return f"{memory.get('content', '')} {tags} {category}".strip()
+        metadata = memory.get("metadata")
+        amem_text = ""
+        if isinstance(metadata, dict):
+            amem = metadata.get("amem")
+            if isinstance(amem, dict):
+                event_text = " ".join(
+                    str(event.get("new_memory_excerpt", ""))
+                    for event in amem.get("evolution_events", [])
+                    if isinstance(event, dict)
+                )
+                topic_text = " ".join(str(item) for item in amem.get("topic_labels", []) if str(item).strip())
+                alias_text = " ".join(str(item) for item in amem.get("retrieval_aliases", []) if str(item).strip())
+                amem_text = (
+                    f"{amem.get('current_interpretation', '')} "
+                    f"{amem.get('evolution_summary', '')} "
+                    f"{amem.get('cluster_key', '')} "
+                    f"{topic_text} {alias_text} {event_text}"
+                ).strip()
+        return f"{memory.get('content', '')} {tags} {category} {amem_text}".strip()
 
     def _try_init_encoder(self):
         if SentenceTransformer is None:
@@ -1106,6 +1452,28 @@ class HybridMemoryStore:
             if same_content and same_category:
                 return None
 
+        auto_link_hits: List[Dict[str, Any]] = []
+        if (
+            not metadata.get("disable_auto_linking")
+            and metadata.get("scope") != "character_canon"
+            and memory_type != "character_fact"
+            and normalized_source not in {"skill", "imported_reference"}
+        ):
+            auto_link_hits = detect_related_memory_links(content, tags, self.memories)
+        auto_link_ids = [hit["memory_id"] for hit in auto_link_hits if hit.get("memory_id")]
+        if auto_link_ids:
+            metadata = dict(metadata)
+            metadata["links"] = normalize_memory_refs(metadata.get("links", [])) + auto_link_ids
+            metadata["links"] = normalize_memory_refs(metadata["links"])
+            metadata["reason"] = append_reason(
+                metadata.get("reason", ""),
+                "Auto-linked to semantically related active memories.",
+            )
+            metadata["evidence"] = append_unique_texts(
+                metadata.get("evidence"),
+                [f"auto_link:{memory_id}" for memory_id in auto_link_ids],
+            )
+
         memory = {
             "id": len(self.memories) + 1,
             "schema_version": str(metadata.get("schema_version", "1.0")),
@@ -1120,9 +1488,12 @@ class HybridMemoryStore:
             "valid_until": metadata.get("valid_until"),
             "status": str(metadata.get("status", "active")),
             "confidence": normalize_memory_confidence(metadata),
+            "use_count": normalize_use_count(metadata.get("use_count", 0)),
+            "last_used_at": parse_memory_time(metadata.get("last_used_at")),
+            "reinforcement_score": normalize_reinforcement_score(metadata.get("reinforcement_score", 0.0)),
             "reason": str(metadata.get("reason", "")),
             "evidence": normalize_memory_evidence(metadata, normalized_source),
-            "links": metadata.get("links", []),
+            "links": normalize_memory_refs(metadata.get("links", [])),
             "contradicts": normalize_memory_refs(metadata.get("contradicts", [])),
             "metadata": metadata,
             "category": category,
@@ -1130,9 +1501,32 @@ class HybridMemoryStore:
             "source_kind": normalized_source,
         }
         self.memories.append(memory)
+        if auto_link_ids:
+            new_id = int(memory["id"])
+            for old_memory in self.memories:
+                old_id = int(old_memory.get("id", 0))
+                if old_id not in auto_link_ids:
+                    continue
+                old_memory["links"] = normalize_memory_refs(normalize_memory_refs(old_memory.get("links", [])) + [new_id])
+                old_metadata = old_memory.get("metadata")
+                if not isinstance(old_metadata, dict):
+                    old_metadata = {}
+                linked_by = old_metadata.get("linked_by", [])
+                if not isinstance(linked_by, list):
+                    linked_by = []
+                linked_by.append({"memory_id": new_id, "reason": "auto_memory_linking", "at": now_ts()})
+                old_metadata["linked_by"] = linked_by[-8:]
+                old_memory["metadata"] = old_metadata
+                hit = next((item for item in auto_link_hits if int(item.get("memory_id", 0)) == old_id), None)
+                if hit and float(hit.get("score", 0.0)) >= AMEM_EVOLUTION_SCORE_THRESHOLD:
+                    append_amem_evolution_event(old_memory, memory, hit)
         self._save_memories()
 
         if self.encoder is None:
+            return dict(memory)
+
+        if auto_link_ids:
+            self._rebuild_index()
             return dict(memory)
 
         vecs = self._encode_texts([self._indexable_text(memory)])
@@ -1236,6 +1630,47 @@ class HybridMemoryStore:
             self._rebuild_index()
         return dict(target)
 
+    def reinforce_memories(
+        self,
+        memory_ids: List[int],
+        *,
+        reason: str = "context_retrieval",
+        amount: float = REINFORCEMENT_CONTEXT_AMOUNT,
+    ) -> Dict[str, Any]:
+        wanted = {int(memory_id) for memory_id in (memory_ids or []) if str(memory_id).strip().isdigit()}
+        if not wanted:
+            return {"updated_count": 0, "memory_ids": []}
+
+        ts = now_ts()
+        reason = str(reason or "context_retrieval").strip()
+        updated_ids = []
+        for memory in self.memories:
+            memory_id = int(memory.get("id", 0))
+            if memory_id not in wanted or memory.get("status", "active") != "active":
+                continue
+
+            current_metadata = memory.get("metadata")
+            if not isinstance(current_metadata, dict):
+                current_metadata = {}
+            events = current_metadata.get("reinforcement_events", [])
+            if not isinstance(events, list):
+                events = []
+            events.append({"at": ts, "reason": reason, "amount": round(float(amount), 4)})
+            current_metadata["reinforcement_events"] = events[-8:]
+            current_metadata["last_reinforcement_reason"] = reason
+
+            memory["use_count"] = normalize_use_count(memory.get("use_count", 0)) + 1
+            memory["last_used_at"] = ts
+            memory["reinforcement_score"] = normalize_reinforcement_score(
+                normalize_reinforcement_score(memory.get("reinforcement_score", 0.0)) + float(amount)
+            )
+            memory["metadata"] = current_metadata
+            updated_ids.append(memory_id)
+
+        if updated_ids:
+            self._save_memories()
+        return {"updated_count": len(updated_ids), "memory_ids": updated_ids}
+
     def clear_all(self):
         self.memories = []
         self._save_memories()
@@ -1286,7 +1721,13 @@ class HybridMemoryStore:
                 continue
 
             importance_bonus = 0.02 * max(1, min(int(memory.get("importance", 3)), 5))
-            score = 0.60 * max(dense, 0.0) + 0.32 * lex + importance_bonus + recency_bonus(memory.get("timestamp"))
+            score = (
+                0.60 * max(dense, 0.0)
+                + 0.32 * lex
+                + importance_bonus
+                + recency_bonus(memory.get("timestamp"))
+                + memory_reinforcement_bonus(memory)
+            )
 
             item = dict(memory)
             item["_dense_score"] = dense
@@ -1741,6 +2182,13 @@ class MemoryRuntime:
             "reflection_notes": 0,
         }
         status_counts: Dict[str, int] = {}
+        reinforced_count = 0
+        total_use_count = 0
+        top_reinforced: List[Dict[str, Any]] = []
+        link_count = 0
+        evolved_count = 0
+        evolution_event_count = 0
+        top_evolved: List[Dict[str, Any]] = []
         for memory in memories:
             layer = memory.get("memory_layer") or infer_memory_layer(
                 memory.get("memory_type", "episodic"),
@@ -1753,9 +2201,79 @@ class MemoryRuntime:
             status_counts[status] = status_counts.get(status, 0) + 1
             if memory.get("contradicts"):
                 layer_counts["contradiction_graph"] = layer_counts.get("contradiction_graph", 0) + len(memory.get("contradicts", []))
+            link_count += len(normalize_memory_refs(memory.get("links", [])))
+            metadata = memory.get("metadata")
+            amem = metadata.get("amem") if isinstance(metadata, dict) else None
+            events = amem.get("evolution_events") if isinstance(amem, dict) else []
+            if isinstance(events, list) and events:
+                evolved_count += 1
+                evolution_event_count += len(events)
+                top_evolved.append(memory)
+            use_count = normalize_use_count(memory.get("use_count", 0))
+            total_use_count += use_count
+            if use_count > 0 or normalize_reinforcement_score(memory.get("reinforcement_score", 0.0)) > 0:
+                reinforced_count += 1
+                top_reinforced.append(memory)
+        top_reinforced.sort(
+            key=lambda item: (
+                normalize_reinforcement_score(item.get("reinforcement_score", 0.0)),
+                normalize_use_count(item.get("use_count", 0)),
+                int(item.get("last_used_at") or 0),
+            ),
+            reverse=True,
+        )
+        top_evolved.sort(
+            key=lambda item: (
+                int(((item.get("metadata") or {}).get("amem") or {}).get("last_evolved_at") or 0),
+                len((((item.get("metadata") or {}).get("amem") or {}).get("evolution_events") or [])),
+            ),
+            reverse=True,
+        )
         return {
             "layers": layer_counts,
             "memory_status": status_counts,
+            "reinforcement": {
+                "reinforced_memory_count": reinforced_count,
+                "total_use_count": total_use_count,
+                "top": [
+                    {
+                        "id": item.get("id"),
+                        "content": compact_text(item.get("content", ""), 72),
+                        "use_count": normalize_use_count(item.get("use_count", 0)),
+                        "reinforcement_score": round(normalize_reinforcement_score(item.get("reinforcement_score", 0.0)), 4),
+                        "last_used_at": item.get("last_used_at"),
+                    }
+                    for item in top_reinforced[:5]
+                ],
+            },
+            "dynamic_links": {
+                "total_link_count": link_count,
+            },
+            "amem_evolution": {
+                "evolved_memory_count": evolved_count,
+                "evolution_event_count": evolution_event_count,
+                "top": [
+                    {
+                        "id": item.get("id"),
+                        "content": compact_text(item.get("content", ""), 72),
+                        "current_interpretation": compact_text(
+                            (((item.get("metadata") or {}).get("amem") or {}).get("current_interpretation") or ""),
+                            120,
+                        ),
+                        "event_count": len((((item.get("metadata") or {}).get("amem") or {}).get("evolution_events") or [])),
+                        "last_evolved_at": ((item.get("metadata") or {}).get("amem") or {}).get("last_evolved_at"),
+                        "cluster_key": ((item.get("metadata") or {}).get("amem") or {}).get("cluster_key", ""),
+                        "topic_labels": ((item.get("metadata") or {}).get("amem") or {}).get("topic_labels", []),
+                        "relationship_strength": ((item.get("metadata") or {}).get("amem") or {}).get("relationship_strength"),
+                        "stability": ((item.get("metadata") or {}).get("amem") or {}).get("stability", ""),
+                        "evolution_summary": compact_text(
+                            (((item.get("metadata") or {}).get("amem") or {}).get("evolution_summary") or ""),
+                            120,
+                        ),
+                    }
+                    for item in top_evolved[:5]
+                ],
+            },
             "pending_turn_count": len(self.pending_turns()),
         }
 
@@ -1850,6 +2368,20 @@ class MemoryRuntime:
             score_key="_final_score",
             limit=2,
         )
+        used_memory_ids = []
+        for item in episodic_hits + stable_long_term_hits + reflection_hits:
+            try:
+                memory_id = int(item.get("id", 0))
+            except (TypeError, ValueError):
+                memory_id = 0
+            if memory_id > 0 and memory_id not in used_memory_ids:
+                used_memory_ids.append(memory_id)
+        if used_memory_ids:
+            self.episodic.reinforce_memories(
+                used_memory_ids,
+                reason="context_build",
+                amount=REINFORCEMENT_CONTEXT_AMOUNT,
+            )
 
         profile_lines = self.profile.render_context(query=query, max_items_per_slot=1, max_total=3)
         if not profile_lines:
@@ -1970,6 +2502,41 @@ class MemoryRuntime:
                 })
         return {"updated_count": len(updates), "updates": updates}
 
+    def _evolve_linked_memories(self) -> Dict[str, Any]:
+        memories = self.episodic.list_memories()
+        by_id = {int(memory.get("id", 0)): memory for memory in memories if memory.get("id") is not None}
+        evolved = []
+        for new_memory in sorted(memories, key=lambda item: int(item.get("timestamp", 0))):
+            if new_memory.get("status", "active") != "active":
+                continue
+            if is_protected_character_memory(new_memory):
+                continue
+            new_id = int(new_memory.get("id", 0))
+            for old_id in normalize_memory_refs(new_memory.get("links", [])):
+                old_memory = by_id.get(old_id)
+                if old_memory is None:
+                    continue
+                if int(old_memory.get("id", 0)) == new_id:
+                    continue
+                if int(old_memory.get("timestamp", 0)) > int(new_memory.get("timestamp", 0)):
+                    continue
+                score = lexical_score(new_memory.get("content", ""), old_memory.get("content", ""))
+                tag_overlap = len(
+                    {normalize_for_match(tag) for tag in new_memory.get("tags", [])}
+                    & {normalize_for_match(tag) for tag in old_memory.get("tags", [])}
+                )
+                score += min(0.12, 0.04 * tag_overlap)
+                if score < AMEM_EVOLUTION_SCORE_THRESHOLD:
+                    continue
+                changed = append_amem_evolution_event(old_memory, new_memory, {"score": score})
+                if changed:
+                    evolved.append({"old_memory_id": old_id, "new_memory_id": new_id, "score": round(score, 4)})
+
+        if evolved:
+            self.episodic._save_memories()
+            self.episodic._rebuild_index()
+        return {"updated_count": len(evolved), "links": evolved}
+
     def _candidate_reflection_memories(self) -> List[Dict]:
         candidates = []
         for memory in self.episodic.list_memories():
@@ -2049,11 +2616,13 @@ class MemoryRuntime:
 
     def run_memory_maintenance(self, reason: str = "manual_consolidation") -> Dict[str, Any]:
         contradiction_review = self._review_contradiction_links()
+        amem_evolution = self._evolve_linked_memories()
         decay_review = self._apply_decay_policy()
         reflection = self._create_reflection_summary()
         return {
             "reason": reason,
             "contradiction_review": contradiction_review,
+            "amem_evolution": amem_evolution,
             "decay_review": decay_review,
             "reflection": reflection,
         }

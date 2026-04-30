@@ -13,8 +13,11 @@ from typing import Dict, List, Optional
 os.environ.setdefault("PYTHONUTF8", "1")
 os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
 
-from memory_runtime import MemoryRuntime, now_ts
+from memory_runtime import MemoryRuntime, memory_lifecycle_view, now_ts
 from persona_kernel_scorer import PersonaKernelScorer
+from planning_runtime import ensure_weekly_schedule, render_planning_context
+from anchor_runtime import load_anchor_bank, render_anchor_context, select_anchor
+from shiro_bridge import ShiroBridge
 from role_config import (
     DEFAULT_IDLE_CONSOLIDATION_SECONDS,
     RoleConfig,
@@ -88,6 +91,7 @@ class RoleChatService:
         self._processor = None
         self._model = None
         self._vision_generation_enabled = False
+        self._omni_generation_enabled = False
         self._init_lock = threading.Lock()
         self._generate_lock = threading.Lock()
         self._runtime_cache: Dict[str, MemoryRuntime] = {}
@@ -95,6 +99,12 @@ class RoleChatService:
         self._memory_judge_enabled = True
         self._persona_scorer = PersonaKernelScorer.from_skill_file(self.config.skill_file)
         self.last_persona_score: Optional[Dict] = None
+        self._anchor_bank = load_anchor_bank(self.config.skill_file)
+        self._shiro_bridge = ShiroBridge(
+            enabled=self.config.shiro_enabled,
+            root=self.config.shiro_root,
+            identity=self.config.shiro_identity,
+        )
         self.idle_consolidation_seconds = normalize_idle_consolidation_seconds(
             self.config.idle_consolidation_seconds
         )
@@ -110,6 +120,7 @@ class RoleChatService:
                 self._tokenizer = None
                 self._processor = None
                 self._vision_generation_enabled = False
+                self._omni_generation_enabled = False
                 del model
                 del tokenizer
                 del processor
@@ -120,6 +131,13 @@ class RoleChatService:
                         self._torch.cuda.ipc_collect()
                     except Exception:
                         pass
+
+    def is_model_loaded(self) -> bool:
+        return self._model is not None and self._tokenizer is not None
+
+    def preload_model(self) -> None:
+        """Load tokenizer, processor, base model, and optional adapter without generating a reply."""
+        self._ensure_model_loaded()
 
     def _config_memory_dir(self) -> Path:
         identity = {
@@ -150,6 +168,17 @@ class RoleChatService:
             "device_map_mode": self.config.device_map_mode,
             "model_loader_mode": self.config.model_loader_mode,
             "context_window_tokens": self.config.context_window_tokens,
+            "local_location": self.config.local_location,
+            "background_jobs_enabled": self.config.background_jobs_enabled,
+            "background_llm_enabled": self.config.background_llm_enabled,
+            "background_idle_seconds": self.config.background_idle_seconds,
+            "background_window_start": self.config.background_window_start,
+            "background_window_end": self.config.background_window_end,
+            "background_max_minutes": self.config.background_max_minutes,
+            "preload_model_on_startup": self.config.preload_model_on_startup,
+            "shiro_enabled": self.config.shiro_enabled,
+            "shiro_root": self.config.shiro_root,
+            "shiro_identity": self.config.shiro_identity,
             "session_root": str(self.memory_root),
         }
         if extra_settings:
@@ -212,6 +241,11 @@ class RoleChatService:
                     from transformers import AutoModelForImageTextToText
                 except ImportError:
                     AutoModelForImageTextToText = None
+                try:
+                    from transformers import Qwen3OmniMoeForConditionalGeneration, Qwen3OmniMoeProcessor
+                except ImportError:
+                    Qwen3OmniMoeForConditionalGeneration = None
+                    Qwen3OmniMoeProcessor = None
             except ModuleNotFoundError as exc:
                 missing = exc.name or "unknown"
                 raise RuntimeError(
@@ -228,6 +262,7 @@ class RoleChatService:
                 raise RuntimeError("没有检测到 CUDA，请确认你是在 GPU 环境下运行。")
 
             print("Device:", torch.cuda.get_device_name(0))
+            model_loader_mode = (self.config.model_loader_mode or "auto").lower()
             print("加载 tokenizer...")
             tokenizer = AutoTokenizer.from_pretrained(
                 self.base_model_path,
@@ -238,7 +273,17 @@ class RoleChatService:
                 tokenizer.pad_token = tokenizer.eos_token
 
             processor = None
-            model_loader_mode = (self.config.model_loader_mode or "auto").lower()
+            if model_loader_mode == "omni":
+                if Qwen3OmniMoeForConditionalGeneration is None or Qwen3OmniMoeProcessor is None:
+                    raise RuntimeError(
+                        "model_loader_mode=omni requires transformers>=5.2.0 with Qwen3OmniMoeForConditionalGeneration "
+                        "and Qwen3OmniMoeProcessor, plus qwen-omni-utils on the A800 server."
+                    )
+                print("Loading Qwen3-Omni processor...")
+                processor = Qwen3OmniMoeProcessor.from_pretrained(
+                    self.base_model_path,
+                    trust_remote_code=True,
+                )
             has_vision_processor = (Path(self.base_model_path) / "preprocessor_config.json").exists()
             if model_loader_mode in {"auto", "vision"} and has_vision_processor:
                 try:
@@ -283,10 +328,17 @@ class RoleChatService:
             else:
                 print("加载 base model without quantization...")
 
+            if model_loader_mode == "omni":
+                if "torch_dtype" in model_kwargs:
+                    model_kwargs["dtype"] = model_kwargs.pop("torch_dtype")
+                else:
+                    model_kwargs["dtype"] = "auto"
+
             if model_loader_mode == "text":
                 print("模型加载器: text（强制 AutoModelForCausalLM；适合纯文本 LoRA）")
                 vision_generation_enabled = False
                 model_loader = AutoModelForCausalLM
+                omni_generation_enabled = False
             elif model_loader_mode == "vision":
                 if processor is None:
                     raise RuntimeError("model_loader_mode=vision 需要底模目录包含可用的 vision processor。")
@@ -295,10 +347,17 @@ class RoleChatService:
                 print("模型加载器: vision（强制 image-text 模型类）")
                 vision_generation_enabled = True
                 model_loader = AutoModelForImageTextToText
+                omni_generation_enabled = False
+            elif model_loader_mode == "omni":
+                print("Model loader: omni (Qwen3-Omni; text output only by default).")
+                vision_generation_enabled = True
+                omni_generation_enabled = True
+                model_loader = Qwen3OmniMoeForConditionalGeneration
             else:
                 print("模型加载器: auto")
                 vision_generation_enabled = processor is not None and AutoModelForImageTextToText is not None
                 model_loader = AutoModelForImageTextToText if vision_generation_enabled else AutoModelForCausalLM
+                omni_generation_enabled = False
             if vision_generation_enabled:
                 print("检测到 vision processor，使用 image-text 模型类加载 base model...")
             elif processor is not None:
@@ -317,7 +376,7 @@ class RoleChatService:
 
             if self.lora_path:
                 try:
-                    from peft import PeftModel
+                    from peft import PeftConfig, PeftModel, get_peft_model
                 except ModuleNotFoundError as exc:
                     raise RuntimeError(
                         "当前配置填写了 LoRA adapter，但 Python 环境缺少 peft。\n"
@@ -325,16 +384,51 @@ class RoleChatService:
                         "请安装：pip install peft"
                     ) from exc
                 print("加载 LoRA adapter...")
-                model = PeftModel.from_pretrained(base_model, self.lora_path)
+                if omni_generation_enabled and hasattr(base_model, "thinker"):
+                    adapter_dir = Path(self.lora_path)
+                    try:
+                        peft_config = PeftConfig.from_pretrained(str(adapter_dir))
+                        thinker = get_peft_model(base_model.thinker, peft_config)
+                        try:
+                            from safetensors.torch import load_file as load_safetensors
+                        except ModuleNotFoundError as exc:
+                            raise RuntimeError("Omni LoRA adapter loading requires safetensors.") from exc
+                        adapter_weights = adapter_dir / "adapter_model.safetensors"
+                        if not adapter_weights.exists():
+                            raise FileNotFoundError(f"Omni LoRA adapter weights not found: {adapter_weights}")
+                        raw_state_dict = load_safetensors(str(adapter_weights), device="cpu")
+                        state_dict = {}
+                        for key, value in raw_state_dict.items():
+                            fixed_key = key
+                            fixed_key = fixed_key.replace(".lora_A.weight", ".lora_A.default.weight")
+                            fixed_key = fixed_key.replace(".lora_B.weight", ".lora_B.default.weight")
+                            state_dict[fixed_key] = value
+                        load_result = thinker.load_state_dict(state_dict, strict=False)
+                        missing = len(getattr(load_result, "missing_keys", []) or [])
+                        unexpected = len(getattr(load_result, "unexpected_keys", []) or [])
+                        print(f"Loaded Omni thinker LoRA manually: missing={missing}, unexpected={unexpected}")
+                        base_model.thinker = thinker
+                    except Exception as exc:
+                        raise RuntimeError(f"Failed to load Omni thinker LoRA adapter: {self.lora_path}: {exc}") from exc
+                    model = base_model
+                else:
+                    model = PeftModel.from_pretrained(base_model, self.lora_path)
             else:
                 print("未配置 LoRA adapter，直接使用 base model。")
                 model = base_model
             model.eval()
+            if omni_generation_enabled and hasattr(model, "disable_talker"):
+                try:
+                    model.disable_talker()
+                    print("Qwen3-Omni talker disabled; RoleWeaver will request text output and leave voice to GPT-SoVITS.")
+                except Exception as exc:
+                    print(f"Warning: Qwen3-Omni disable_talker failed; generation will still request return_audio=False: {exc}")
 
             self._tokenizer = tokenizer
             self._processor = processor
             self._model = model
             self._vision_generation_enabled = vision_generation_enabled
+            self._omni_generation_enabled = omni_generation_enabled
 
     def _session_dir(self, session_id: str) -> Path:
         path = self.session_root / sanitize_session_id(session_id)
@@ -542,7 +636,7 @@ class RoleChatService:
 
     def list_session_memories(
         self,
-        session_id: str,
+        session_id: str = "default",
         include_inactive: bool = True,
         status: Optional[str] = None,
         query: Optional[str] = None,
@@ -575,6 +669,7 @@ class RoleChatService:
         for memory in memories:
             item = dict(memory)
             item["contradicted_by"] = reverse.get(int(item.get("id", 0) or 0), [])
+            item["lifecycle"] = memory_lifecycle_view(item)
             enriched.append(item)
         return enriched
 
@@ -593,6 +688,28 @@ class RoleChatService:
         before = len(runtime.episodic.list_memories())
         runtime.episodic.delete_memory(memory_id)
         return len(runtime.episodic.list_memories()) < before
+
+    def shiro_status(self, session_id: str = "default") -> Dict:
+        return self._shiro_bridge.status(session_id)
+
+    def observe_shiro_stimulus(
+        self,
+        session_id: str,
+        text: str,
+        *,
+        source: str = "manual",
+        metadata: Optional[Dict] = None,
+    ) -> Dict:
+        return self._shiro_bridge.observe_text(session_id, text, source=source, metadata=metadata or {})
+
+    def infer_shiro_tool_intentions(
+        self,
+        session_id: str,
+        text: str,
+        *,
+        metadata: Optional[Dict] = None,
+    ) -> Dict:
+        return self._shiro_bridge.infer_tool_intentions(session_id, text, metadata=metadata or {})
 
     def _maybe_consolidate_after_idle(self, session_id: str, meta: Dict):
         last_activity_ts = meta.get("last_activity_ts")
@@ -629,14 +746,49 @@ class RoleChatService:
         user_text: str,
         role_mode: bool,
         runtime: MemoryRuntime,
+        session_id: str,
         max_history_messages: int = 6,
     ):
         base_system = self.config.build_role_system_prompt() if role_mode else self.config.normal_system_prompt
         memory_context = runtime.build_context(user_text).render()
+        planning_context = ""
+        anchor_context = ""
+        shiro_context = ""
+        schedule = None
+        if role_mode:
+            try:
+                shiro_context = self._shiro_bridge.thought_context(session_id)
+            except Exception as exc:
+                shiro_context = f"【Shiro Cognitive Context】\n- unavailable: {exc}"
+            try:
+                schedule = ensure_weekly_schedule(
+                    self._session_dir(session_id).parent,
+                    role_name=self.config.role_name,
+                    location=self.config.local_location,
+                )
+                planning_context = render_planning_context(schedule)
+            except Exception as exc:
+                planning_context = f"【現在時刻と生活状態】\n- planning context unavailable: {exc}"
+            try:
+                anchor = select_anchor(
+                    self._anchor_bank,
+                    schedule=schedule,
+                    user_text=user_text,
+                    session_id=session_id,
+                )
+                anchor_context = render_anchor_context(anchor)
+            except Exception as exc:
+                anchor_context = f"【Persona Anchor Replay】\n- anchor context unavailable: {exc}"
 
         final_system = base_system
         if memory_context:
             final_system += "\n\n" + memory_context
+        if shiro_context:
+            final_system += "\n\n" + shiro_context
+        if planning_context:
+            final_system += "\n\n" + planning_context
+        if anchor_context:
+            final_system += "\n\n" + anchor_context
 
         messages = []
         if final_system.strip():
@@ -647,6 +799,13 @@ class RoleChatService:
         return messages
 
     def _messages_to_prompt_text(self, messages: List[Dict]) -> str:
+        if self._omni_generation_enabled and self._processor is not None:
+            omni_messages = self._messages_to_omni_messages(messages)
+            return self._processor.apply_chat_template(
+                omni_messages,
+                tokenize=False,
+                add_generation_prompt=True,
+            )
         try:
             return self._tokenizer.apply_chat_template(
                 messages,
@@ -685,7 +844,79 @@ class RoleChatService:
             vision_messages.append({"role": "user", "content": multimodal_content})
         return vision_messages
 
+    @staticmethod
+    def _messages_to_omni_messages(messages: List[Dict]) -> List[Dict]:
+        omni_messages = []
+        for message in messages:
+            content = message.get("content", "")
+            if isinstance(content, list):
+                normalized_content = []
+                for item in content:
+                    if not isinstance(item, dict):
+                        normalized_content.append({"type": "text", "text": str(item)})
+                        continue
+                    item_type = item.get("type")
+                    if item_type == "image":
+                        normalized_content.append({"type": "image", "image": item.get("image") or item.get("path") or item.get("url")})
+                    elif item_type == "audio":
+                        normalized_content.append({"type": "audio", "audio": item.get("audio") or item.get("path") or item.get("url")})
+                    elif item_type == "video":
+                        normalized_content.append({"type": "video", "video": item.get("video") or item.get("path") or item.get("url")})
+                    else:
+                        normalized_content.append({"type": "text", "text": str(item.get("text", ""))})
+            else:
+                normalized_content = [{"type": "text", "text": str(content)}]
+            omni_messages.append({"role": message.get("role", "user"), "content": normalized_content})
+        return omni_messages
+
+    def _omni_messages_to_inputs(self, messages: List[Dict]):
+        if self._processor is None:
+            raise RuntimeError("model_loader_mode=omni requires a Qwen3-Omni processor.")
+        try:
+            from qwen_omni_utils import process_mm_info
+        except ModuleNotFoundError as exc:
+            raise RuntimeError(
+                "model_loader_mode=omni requires qwen-omni-utils on the A800 server: pip install -U qwen-omni-utils"
+            ) from exc
+
+        omni_messages = self._messages_to_omni_messages(messages)
+        text = self._processor.apply_chat_template(
+            omni_messages,
+            add_generation_prompt=True,
+            tokenize=False,
+        )
+        audios, images, videos = process_mm_info(omni_messages, use_audio_in_video=True)
+        inputs = self._processor(
+            text=text,
+            audio=audios,
+            images=images,
+            videos=videos,
+            return_tensors="pt",
+            padding=True,
+            use_audio_in_video=True,
+        )
+        return inputs.to(self._model.device)
+
+    def _decode_generated_text(self, outputs, inputs) -> str:
+        if self._omni_generation_enabled:
+            text_ids = outputs[0] if isinstance(outputs, tuple) else outputs
+            sequences = getattr(text_ids, "sequences", text_ids)
+            prompt_len = inputs["input_ids"].shape[1] if "input_ids" in inputs else 0
+            decoded = self._processor.batch_decode(
+                sequences[:, prompt_len:],
+                skip_special_tokens=True,
+                clean_up_tokenization_spaces=False,
+            )
+            return decoded[0] if decoded else ""
+
+        generated_ids = outputs[0][inputs["input_ids"].shape[1]:]
+        result = self._tokenizer.decode(generated_ids, skip_special_tokens=False)
+        del generated_ids
+        return result
+
     def _vision_messages_to_inputs(self, messages: List[Dict], image_path: str):
+        if self._omni_generation_enabled:
+            return self._omni_messages_to_inputs(messages)
         if self._processor is None:
             raise RuntimeError(
                 "当前模型没有可用的 vision processor，无法读取图片。请确认底模目录包含 preprocessor_config.json，"
@@ -746,7 +977,8 @@ class RoleChatService:
         user_text: str,
         role_mode: bool,
         runtime: MemoryRuntime,
-        max_new_tokens: int,
+        session_id: str = "default",
+        max_new_tokens: int = 96,
     ) -> List[Dict]:
         context_limit = self._context_window_tokens()
         generation_reserve = max(int(max_new_tokens or 0), 1) + 256
@@ -758,6 +990,7 @@ class RoleChatService:
             user_text=user_text,
             role_mode=role_mode,
             runtime=runtime,
+            session_id=session_id,
             max_history_messages=6,
         )
         prompt_tokens = self._count_prompt_tokens(messages)
@@ -786,6 +1019,7 @@ class RoleChatService:
                 user_text=user_text,
                 role_mode=role_mode,
                 runtime=runtime,
+                session_id=session_id,
                 max_history_messages=history_messages,
             )
             prompt_tokens = self._count_prompt_tokens(messages)
@@ -824,29 +1058,40 @@ class RoleChatService:
             user_text=user_text,
             role_mode=role_mode,
             runtime=runtime,
+            session_id=session_id,
             max_new_tokens=max_new_tokens,
         )
-        text = self._messages_to_prompt_text(messages)
-
-        inputs = self._tokenizer(text, return_tensors="pt").to(self._model.device)
+        if self._omni_generation_enabled:
+            inputs = self._omni_messages_to_inputs(messages)
+        else:
+            text = self._messages_to_prompt_text(messages)
+            inputs = self._tokenizer(text, return_tensors="pt").to(self._model.device)
 
         with self._generate_lock:
             with self._torch.no_grad():
-                outputs = self._model.generate(
-                    **inputs,
-                    max_new_tokens=max_new_tokens,
-                    do_sample=True,
-                    temperature=0.72,
-                    top_p=0.9,
-                    repetition_penalty=1.08,
-                    pad_token_id=self._tokenizer.pad_token_id,
-                    eos_token_id=self._tokenizer.eos_token_id,
-                )
+                if self._omni_generation_enabled:
+                    outputs = self._model.generate(
+                        **inputs,
+                        max_new_tokens=max_new_tokens,
+                        return_audio=False,
+                        thinker_return_dict_in_generate=True,
+                        use_audio_in_video=True,
+                    )
+                else:
+                    outputs = self._model.generate(
+                        **inputs,
+                        max_new_tokens=max_new_tokens,
+                        do_sample=True,
+                        temperature=0.72,
+                        top_p=0.9,
+                        repetition_penalty=1.08,
+                        pad_token_id=self._tokenizer.pad_token_id,
+                        eos_token_id=self._tokenizer.eos_token_id,
+                    )
 
-        generated_ids = outputs[0][inputs["input_ids"].shape[1]:]
-        result = self._tokenizer.decode(generated_ids, skip_special_tokens=False)
+        result = self._decode_generated_text(outputs, inputs)
         result = self.clean_response(result)
-        del inputs, outputs, generated_ids
+        del inputs, outputs
         self._maybe_empty_cuda_cache_after_generate()
 
         persona_score = self._score_persona_response(
@@ -855,6 +1100,7 @@ class RoleChatService:
             surface="web",
         )
         runtime.record_turn(user_text, result)
+        self._shiro_bridge.observe_chat_turn(session_id, user_text, result, surface="web")
         self._append_transcript_turn(
             session_id,
             user_text,
@@ -899,6 +1145,7 @@ class RoleChatService:
             user_text=display_user_text,
             role_mode=role_mode,
             runtime=runtime,
+            session_id=session_id,
             max_new_tokens=max_new_tokens,
         )
         vision_messages = self._messages_to_vision_messages(
@@ -910,21 +1157,29 @@ class RoleChatService:
 
         with self._generate_lock:
             with self._torch.no_grad():
-                outputs = self._model.generate(
-                    **inputs,
-                    max_new_tokens=max_new_tokens,
-                    do_sample=True,
-                    temperature=0.72,
-                    top_p=0.9,
-                    repetition_penalty=1.08,
-                    pad_token_id=self._tokenizer.pad_token_id,
-                    eos_token_id=self._tokenizer.eos_token_id,
-                )
+                if self._omni_generation_enabled:
+                    outputs = self._model.generate(
+                        **inputs,
+                        max_new_tokens=max_new_tokens,
+                        return_audio=False,
+                        thinker_return_dict_in_generate=True,
+                        use_audio_in_video=True,
+                    )
+                else:
+                    outputs = self._model.generate(
+                        **inputs,
+                        max_new_tokens=max_new_tokens,
+                        do_sample=True,
+                        temperature=0.72,
+                        top_p=0.9,
+                        repetition_penalty=1.08,
+                        pad_token_id=self._tokenizer.pad_token_id,
+                        eos_token_id=self._tokenizer.eos_token_id,
+                    )
 
-        generated_ids = outputs[0][inputs["input_ids"].shape[1]:]
-        result = self._tokenizer.decode(generated_ids, skip_special_tokens=False)
+        result = self._decode_generated_text(outputs, inputs)
         result = self.clean_response(result)
-        del inputs, outputs, generated_ids
+        del inputs, outputs
         self._maybe_empty_cuda_cache_after_generate()
 
         persona_score = self._score_persona_response(
@@ -933,6 +1188,7 @@ class RoleChatService:
             surface="image",
         )
         runtime.record_turn(display_user_text, result)
+        self._shiro_bridge.observe_chat_turn(session_id, display_user_text, result, surface="image")
         self._append_transcript_turn(
             session_id,
             display_user_text,

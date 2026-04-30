@@ -10,6 +10,7 @@ RoleWeaver 是一个本地优先的角色智能体运行框架。它把以下输
 - 可选 LoRA adapter；
 - 可选 `SKILL.md`；
 - 可选 `persona_kernel.json`；
+- 可选 `anchors/anchors.jsonl`；
 - 多会话长期记忆；
 - Web / CLI / LINE / TTS / 图片输入等交互入口。
 
@@ -224,6 +225,9 @@ runtime\Scripts\python.exe API.py --config roleweaver.config.csv --host 127.0.0.
 | `GET` | `/sessions/{session_id}/memories` | 列出会话长期记忆 |
 | `PATCH` | `/sessions/{session_id}/memories/{memory_id}` | 更新记忆状态或 metadata |
 | `DELETE` | `/sessions/{session_id}/memories/{memory_id}` | 删除一条记忆 |
+| `GET` | `/planning/{session_id}` | 读取当前会话对应的角色规划状态 |
+| `POST` | `/planning/{session_id}/regenerate` | 重生成本周角色规划 |
+| `GET` | `/planning/search` | 临时网络检索参考资料 |
 | `GET` | `/training/template` | 下载训练 Excel 模板 |
 | `POST` | `/training/start` | 启动本地 LoRA 训练 |
 

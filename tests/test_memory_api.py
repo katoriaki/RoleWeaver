@@ -58,6 +58,8 @@ class MemoryApiTestCase(unittest.TestCase):
             listed = client.get(f"/sessions/{session_id}/memories")
             self.assertEqual(listed.status_code, 200)
             self.assertEqual(len(listed.json()["memories"]), 1)
+            self.assertIn("lifecycle", listed.json()["memories"][0])
+            self.assertEqual(listed.json()["memories"][0]["lifecycle"]["status"], "active")
 
             updated = client.patch(
                 f"/sessions/{session_id}/memories/1",

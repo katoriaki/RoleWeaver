@@ -1,0 +1,38 @@
+{
+  "line": {
+    "max_new_tokens": 192,
+    "reply_chunk_size": 4500,
+    "image_prompt": "请看这张图片，并用当前角色的语气像 LINE 聊天一样短一点、自然回应。不要机械描述，只抓用户可能想让你注意的重点。",
+    "voice": {
+      "reply_voice": false,
+      "text_only_window_enabled": true,
+      "text_only_start": "08:00",
+      "text_only_end": "17:30",
+      "timezone": "Asia/Tokyo",
+      "allow_voice_on_request": true,
+      "request_markers": [
+        "语音",
+        "音声",
+        "ボイス",
+        "voice",
+        "audio"
+      ],
+      "reject_markers": [
+        "不要语音",
+        "只要文字",
+        "音声なし",
+        "text only",
+        "no voice"
+      ]
+    },
+    "wake_up": {
+      "enabled": false,
+      "time": "07:00",
+      "timezone": "Asia/Tokyo",
+      "voice": false,
+      "auto_subscribe": false,
+      "prompt": "现在是早上7点。请作为当前角色，轻轻叫醒用户。短一点，像真人发来的早安，不要解释。",
+      "fallback_text": "早上了。慢慢醒来吧，我在这里。"
+    }
+  }
+}

@@ -1,0 +1,16 @@
+torch
+transformers>=5.2.0
+accelerate
+qwen-omni-utils
+sentence-transformers
+faiss-cpu
+numpy
+Pillow
+fastapi
+uvicorn[standard]
+pydantic
+pypdf
+python-dotenv
+peft
+datasets
+bitsandbytes

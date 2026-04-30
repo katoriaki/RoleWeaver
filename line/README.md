@@ -176,6 +176,25 @@ Use the same public base URL as the webhook URL, but without `/callback`.
 
 `ROLEWEAVER_REPLY_VOICE=1` makes normal chat replies voice-first. Built-in commands such as `/ping`, `/help`, `/status`, `/wake on`, and `/wake off` remain text so they are easy to debug.
 
+### Surface Policy File
+
+M6.1 adds a central policy file for LINE, TTS, image, and wake-up behavior:
+
+```dotenv
+ROLEWEAVER_SURFACE_POLICY_FILE=line\surface_policy.json
+```
+
+If an environment variable is set, it still overrides the JSON policy. This keeps old `.env` files compatible while letting new users edit one structured file for:
+
+- `line.max_new_tokens`
+- `line.reply_chunk_size`
+- `line.image_prompt`
+- `line.voice.reply_voice`
+- `line.voice.text_only_start` / `text_only_end`
+- `line.voice.request_markers` / `reject_markers`
+- `line.wake_up.time`
+- `line.wake_up.prompt`
+
 ### Daytime Text-Only Window
 
 To avoid generating voice during work or school hours, enable the text-only window:
@@ -284,6 +303,16 @@ ROLEWEAVER_TTS_TEXT_LANGUAGE=ja
 `ROLEWEAVER_PUBLIC_BASE_URL` 使用和 Webhook 同一个 Cloudflare/ngrok 地址，但不要加 `/callback`。
 
 `ROLEWEAVER_REPLY_VOICE=1` 会让普通聊天回复优先走语音；`/ping`、`/help`、`/status`、`/wake on` 这类调试命令仍然用文字，方便排错。
+
+### Surface Policy 文件
+
+M6.1 增加了集中策略文件：
+
+```dotenv
+ROLEWEAVER_SURFACE_POLICY_FILE=line\surface_policy.json
+```
+
+老的 `.env` 变量仍然优先生效；如果没写 env，就读取 JSON。你可以在这个文件里统一改 LINE 生成长度、图片提示、白天文字模式、语音触发词、wake-up 时间和叫醒提示词。
 
 ### 白天文字模式
 

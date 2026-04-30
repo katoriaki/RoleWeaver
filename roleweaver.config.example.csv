@@ -7,4 +7,19 @@ quantization_mode,4bit,Model loading mode: 4bit, 8bit, bf16, fp16, or none
 device_map_mode,gpu,Device placement: gpu rejects CPU offload; auto allows CPU offload when VRAM is insufficient
 model_loader_mode,auto,"Model class loader: auto, text, or vision. Use text for LoRA trained with AutoModelForCausalLM."
 context_window_tokens,0,Optional: model context window tokens; 0 means auto-detect
+local_location,"Tokyo, Japan","Local place assumed by role planning, such as Tokyo, Japan"
+background_jobs_enabled,true,Enable non-realtime background jobs when the app is idle
+background_llm_enabled,false,Allow background jobs to invoke the local model; keep disabled on single-GPU setups unless intentional
+background_idle_seconds,600,Minimum idle seconds before automatic background work can run
+background_window_start,02:00,"Daily background window start, HH:MM local time"
+background_window_end,05:30,"Daily background window end, HH:MM local time"
+background_max_minutes,20,Maximum intended minutes for one background job
+autonomous_learning_enabled,false,Let Shiro learn from web search while idle
+autonomous_learning_subjects,"mathematics, computer science",Comma-separated subjects for autonomous web study
+autonomous_learning_interval_seconds,1800,Minimum seconds between autonomous learning steps
+autonomous_learning_use_model,true,Use the loaded model to write study notes; false keeps dry-run only
+autonomous_learning_max_new_tokens,512,Max tokens for one autonomous study note generation
+shiro_enabled,false,Enable Shiro cognitive-state bridge
+shiro_root,shiro\data\roleweaver,Directory where Shiro stores session cognitive state
+shiro_identity,白,Cognitive identity name
 ui_language,zh,Web UI language: zh, ja, or en

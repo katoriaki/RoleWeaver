@@ -1,0 +1,26 @@
+key,value,description
+base_model_path,/public/huggingface-models/Qwen/Qwen3-Omni-30B-A3B-Instruct,A800 server local path for Qwen3-Omni Instruct
+lora_path,/root/data/RoleWeaver_A800_Server/training_runs/qwen3_omni_shiro_persona/omni-shiro-persona-full-20260430-0215/adapter/final,Shiro Qwen3-Omni thinker LoRA adapter
+skill_file,skillcreater/characters/Shiro/skill/SKILL.md,Shiro original persona skill
+skill_text,,Optional inline skill extension
+quantization_mode,bf16,A800 80GB recommended setting for Qwen3-Omni
+device_map_mode,gpu,Use one GPU and reject silent CPU offload
+model_loader_mode,omni,Qwen3-Omni loader profile
+context_window_tokens,32768,Initial context budget
+local_location,"Tokyo, Japan",Assumed local location for schedule/planning context
+background_jobs_enabled,true,Allow background reflection/planning
+background_llm_enabled,true,Allow background LLM jobs on the A800 server
+background_idle_seconds,180,Wait before background jobs
+background_window_start,00:00,All-day background window start
+background_window_end,00:00,All-day background window end
+background_max_minutes,40,Maximum intended background job runtime
+autonomous_learning_enabled,true,Let Shiro learn from web search while idle
+autonomous_learning_subjects,"mathematics, computer science",Idle autonomous study interests
+autonomous_learning_interval_seconds,300,Five-minute ticks for the 45/5/10 autonomous learning cycle
+autonomous_learning_use_model,true,Use Qwen3-Omni to write autonomous study notes
+autonomous_learning_max_new_tokens,512,Max tokens for one autonomous study note
+preload_model_on_startup,true,Load Qwen3-Omni during API startup so the first chat request does not pay cold-start cost
+shiro_enabled,true,Enable Shiro cognitive bridge
+shiro_root,shiro/data/roleweaver,Shiro cognitive state directory
+shiro_identity,白,Shiro identity name
+ui_language,zh,Default web UI language

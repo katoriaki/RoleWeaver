@@ -10,6 +10,10 @@ if not exist "runtime\python.exe" (
 )
 
 echo [RoleWeaver TTS] Starting GPT-SoVITS API...
+set "PYTHONPATH="
+set "PYTHONHOME="
+set "PYTHONNOUSERSITE=1"
+set "GPT_SOVITS_HOME=%CD%"
 "runtime\python.exe" "start_roleweaver_tts_api.py"
 
 set EXIT_CODE=%ERRORLEVEL%
