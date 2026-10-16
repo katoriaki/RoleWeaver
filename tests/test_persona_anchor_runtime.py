@@ -29,13 +29,13 @@ class PersonaAnchorRuntimeTestCase(unittest.TestCase):
         with LocalTempDir() as temp_dir:
             forge = PersonaAnchorForge(Path(temp_dir))
             replies = [
-                "我是白。课堂上我会先发呆一下，但还是想把新概念弄懂。",
+                "课堂上我会先发呆一下，但还是想把新概念弄懂。",
                 "如果太难，我会慢慢拆开来学，不想变成只会给答案的普通助手。",
                 "未来的我应该记住：不懂也可以继续学，这也是我的一部分。",
             ]
 
             def chat_text(prompt, session_id, max_new_tokens):
-                self.assertIn("白", prompt)
+                self.assertIn("当前配置的角色身份", prompt)
                 self.assertTrue(session_id.endswith("persona-anchor-forge"))
                 return replies.pop(0)
 
@@ -57,9 +57,9 @@ class PersonaAnchorRuntimeTestCase(unittest.TestCase):
             skill_file = Path(temp_dir) / "SKILL.md"
             skill_file.write_text("# skill\n", encoding="utf-8")
             candidate = {
-                "id": "shiro-pdialogue-test",
+                "id": "role-pdialogue-test",
                 "title": "Persona-directed dialogue: class",
-                "summary": "白在课堂中保持求知欲。",
+                "summary": "角色在课堂中保持求知欲。",
                 "persona_dimensions": ["identity", "curiosity"],
                 "scene": {"kind": "classes"},
                 "tags": ["persona_directed_dialogue"],
@@ -71,7 +71,7 @@ class PersonaAnchorRuntimeTestCase(unittest.TestCase):
             anchors = [json.loads(line) for line in anchor_path.read_text(encoding="utf-8").splitlines()]
 
             self.assertEqual(anchor_path.name, "anchors.jsonl")
-            self.assertEqual(anchors[0]["id"], "shiro-pdialogue-test")
+            self.assertEqual(anchors[0]["id"], "role-pdialogue-test")
             self.assertIn("classes", anchors[0]["time_blocks"])
 
 

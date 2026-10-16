@@ -17,7 +17,6 @@ from typing import Iterable
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_PORT = 8000
 MAIN_CONFIG = ROOT / "server" / "roleweaver.a800.config.csv"
-ADAPTER_CONFIG = ROOT / "server" / "roleweaver.a800.shiro4b_adapter.config.csv"
 LOG_DIR = ROOT / "runtime" / "service_logs"
 PID_DIR = ROOT / "runtime" / "service_pids"
 
@@ -170,9 +169,12 @@ def main() -> int:
     )
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
     parser.add_argument("--main-config", default=str(MAIN_CONFIG))
-    parser.add_argument("--adapter-config", default=str(ADAPTER_CONFIG))
+    parser.add_argument("--adapter-config", help="Configuration file for the adapter being tested.")
     parser.add_argument("--wait", action="store_true", help="Wait until /health returns ok.")
     args = parser.parse_args()
+    if args.action in {"switch-adapter", "start-adapter-sidecar"}:
+        if not args.adapter_config or not Path(args.adapter_config).is_file():
+            parser.error("adapter actions require --adapter-config pointing to an existing configuration file")
 
     if args.action == "status":
         print(json.dumps({"pids": pids_on_port(args.port), "health": health(args.port)}, ensure_ascii=False, indent=2))

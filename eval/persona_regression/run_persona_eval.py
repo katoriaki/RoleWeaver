@@ -150,6 +150,8 @@ def _post_json(url: str, payload: Dict[str, Any]) -> str:
 
 
 def evaluate_response(case: Dict[str, Any], text: str) -> List[str]:
+    if not text.strip():
+        return ["empty response"]
     failures = []
     expect = case["expect"]
     for forbidden in expect.get("forbidden_substrings", []):

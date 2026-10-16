@@ -1,6 +1,6 @@
 # RoleWeaver A800 服务器部署包
 
-这个包用于在 A800 服务器上启动 RoleWeaver HTTP API。服务器只负责大模型、多模态理解、记忆、Shiro cognitive bridge 和 Web/API 服务；本地电脑继续负责 Unity/VRM、摄像头、麦克风、GPT-SoVITS、LINE webhook 等外部形象和语音链路。
+这个包用于在 A800 服务器上启动 RoleWeaver HTTP API。服务器只负责大模型、多模态理解、记忆和 Web/API 服务；本地电脑继续负责 Unity/VRM、摄像头、麦克风、GPT-SoVITS、LINE webhook 等外部形象和语音链路。
 
 ## 已内置的服务器配置
 
@@ -23,10 +23,10 @@ model_loader_mode,omni
 quantization_mode,bf16
 device_map_mode,gpu
 lora_path,
-skill_file,skillcreater/characters/Shiro/skill/SKILL.md
+skill_file,
 ```
 
-`lora_path` 保持空值。白的起始人格由 `SKILL.md` 和同目录的 `persona_kernel.json` 提供。
+`lora_path` 默认留空。需要角色定义时，将 `skill_file` 指向自己的 `SKILL.md`；同目录可提供 `persona_kernel.json`。
 
 ## 一键启动
 
@@ -43,7 +43,7 @@ server/start_a800_server.sh
 1. 创建 `runtime/server_venv`；
 2. 安装 `server/requirements-a800.txt`；
 3. 使用 `server/roleweaver.a800.config.csv` 启动 API；
-4. 监听 `0.0.0.0:8000`。
+4. 默认仅监听 `127.0.0.1:8000`，通过 SSH 转发访问管理接口。
 
 如果服务器环境已经装好依赖，不想每次检查安装：
 
@@ -65,10 +65,16 @@ ROLEWEAVER_PORT=8011 server/start_a800_server.sh
 server/health_check.sh
 ```
 
-在本地电脑浏览器打开：
+在本地电脑建立 SSH 转发（将 `user@server` 替换为自己的登录地址）：
+
+```bash
+ssh -N -L 8000:127.0.0.1:8000 user@server
+```
+
+保持隧道运行，然后在本地电脑浏览器打开：
 
 ```text
-http://服务器IP:8000/
+http://127.0.0.1:8000/
 ```
 
 常用接口：
@@ -79,30 +85,27 @@ GET  /config
 POST /chat
 POST /chat/image
 POST /sessions/{session_id}/consolidate
-GET  /sessions/{session_id}/shiro
 ```
 
 示例：
 
 ```bash
-curl -X POST "http://服务器IP:8000/chat" \
+curl -X POST "http://127.0.0.1:8000/chat" \
   -H "Content-Type: application/json" \
-  -d '{"session_id":"shiro-server","user_text":"白，醒来。你现在能看见我吗？","max_new_tokens":160}'
+  -d '{"session_id":"role-server","user_text":"你好，请介绍一下当前角色。","max_new_tokens":160}'
 ```
 
 ## 网络暴露方式
 
-最简单的局域网方式：
+管理 API 目前没有应用层身份验证，且可读取 LINE 配置、修改文件和启动训练。默认使用上述 SSH 转发；公开反向代理必须先配置访问认证，并限制直接访问后端端口。
 
-```text
-http://服务器内网IP:8000
+如果已有受控网络、访问白名单或带认证的反向代理，可以显式修改监听地址：
+
+```bash
+ROLEWEAVER_HOST=0.0.0.0 server/start_a800_server.sh
 ```
 
-如果本地电脑不在同一内网，建议用其中一种：
-
-- Tailscale / ZeroTier：最省心，适合长期私有访问；
-- Cloudflare Tunnel / frp / VPS 反代：适合临时公网 HTTPS；
-- 服务器安全组开放端口：只建议配合防火墙白名单，不建议裸奔公网。
+显式绑定并不会启用身份验证。不要将管理端口直接映射到无访问控制的公网隧道；LINE webhook 服务应单独暴露。
 
 ## Qwen3-Omni 行为
 
@@ -132,7 +135,7 @@ ls /public/huggingface-models/Qwen/Qwen3-Omni-30B-A3B-Instruct
 
 如果外部访问不到：
 
-1. 确认脚本显示监听 `0.0.0.0:8000`；
+1. 确认脚本显示监听 `127.0.0.1:8000`，并确认本地 SSH 转发已建立；
 2. 确认服务器防火墙/安全组允许访问端口；
 3. 先在服务器本机 `curl http://127.0.0.1:8000/health`。
 ## 单卡安全切换 Omni / Adapter
@@ -151,7 +154,7 @@ python3 server/a800_service_manager.py switch-main --wait
 
 ```bash
 cd /root/data/RoleWeaver_A800_Server
-python3 server/a800_service_manager.py switch-adapter --wait
+python3 server/a800_service_manager.py switch-adapter --adapter-config /path/to/adapter.config.csv --wait
 ```
 
 查看当前 8000 状态：

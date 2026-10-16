@@ -10,7 +10,9 @@ export HF_HUB_OFFLINE="${HF_HUB_OFFLINE:-1}"
 export HF_DATASETS_OFFLINE="${HF_DATASETS_OFFLINE:-1}"
 export TOKENIZERS_PARALLELISM="${TOKENIZERS_PARALLELISM:-false}"
 
-HOST="${ROLEWEAVER_HOST:-0.0.0.0}"
+# The management API can read secrets and start jobs. Keep it behind SSH or
+# an authenticated proxy unless the operator explicitly chooses another bind.
+HOST="${ROLEWEAVER_HOST:-127.0.0.1}"
 PORT="${ROLEWEAVER_PORT:-8000}"
 CONFIG_FILE="${ROLEWEAVER_CONFIG_FILE:-${ROOT_DIR}/server/roleweaver.a800.config.csv}"
 VENV_DIR="${ROLEWEAVER_VENV_DIR:-${ROOT_DIR}/runtime/server_venv}"
@@ -35,6 +37,6 @@ else
 fi
 
 echo "[RoleWeaver A800] Starting API service..."
-echo "[RoleWeaver A800] Health: http://<server-ip>:${PORT}/health"
-echo "[RoleWeaver A800] Web UI: http://<server-ip>:${PORT}/"
+echo "[RoleWeaver A800] Health on server: http://127.0.0.1:${PORT}/health"
+echo "[RoleWeaver A800] For remote access, forward this port over SSH."
 exec "${PYTHON_BIN}" "${ROOT_DIR}/API.py" --config "${CONFIG_FILE}" --host "${HOST}" --port "${PORT}"

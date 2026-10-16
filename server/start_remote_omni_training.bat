@@ -9,10 +9,11 @@ if not defined PY if exist ".venv\Scripts\python.exe" set "PY=.venv\Scripts\pyth
 if not defined PY set "PY=python"
 
 echo [RoleWeaver] Starting remote Qwen3-Omni LoRA training on A800...
-echo [RoleWeaver] This will upload the Shiro persona dataset, install remote training dependencies,
+echo [RoleWeaver] Pass --data-file with your repository-relative messages JSONL path.
+echo [RoleWeaver] This will upload that dataset, install remote training dependencies,
 echo [RoleWeaver] stop the remote API to free GPU memory, and start training in the background.
 echo.
-"%PY%" server\start_remote_omni_training.py
+"%PY%" server\start_remote_omni_training.py %*
 set EXIT_CODE=%ERRORLEVEL%
 
 echo.

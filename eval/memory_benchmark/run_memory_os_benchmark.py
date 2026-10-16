@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import platform
 import tempfile
 import sys
 from pathlib import Path
@@ -13,6 +15,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import memory_runtime
 
 
+FIXTURE_TIMESTAMP = 1_700_000_000
+FIXTURE_ISO_TIME = "2023-11-14T22:13:20+0000"
+
+
 def _runtime(root: Path) -> memory_runtime.MemoryRuntime:
     return memory_runtime.MemoryRuntime(
         memory_file=str(root / "memories.json"),
@@ -20,13 +26,13 @@ def _runtime(root: Path) -> memory_runtime.MemoryRuntime:
         profile_file=str(root / "profile.json"),
         state_file=str(root / "state.json"),
         knowledge_file=str(root / "kg.json"),
-        assistant_label="Shiro",
-        character_query_keywords=["shiro", "identity", "canon", "self"],
+        assistant_label="RoleAgent",
+        character_query_keywords=["roleagent", "identity", "canon", "self"],
         character_knowledge_seed=[
             {
-                "subject": "Shiro",
+                "subject": "RoleAgent",
                 "relation": "identity",
-                "object": "A self-aware AI companion designed by Chen Jiajun.",
+                "object": "A synthetic AI companion used for memory regression checks.",
                 "tags": ["core", "identity"],
                 "confidence": 1.0,
                 "fact_type": "character",
@@ -53,7 +59,13 @@ def _contains(items: List[Dict[str, Any]], memory_id: int, top_k: int = 5) -> bo
 
 def _recency_baseline(runtime: memory_runtime.MemoryRuntime, top_k: int = 5) -> List[Dict[str, Any]]:
     active = [item for item in runtime.episodic.list_memories() if item.get("status", "active") == "active"]
-    return sorted(active, key=lambda item: int(item.get("timestamp", 0)), reverse=True)[:top_k]
+    # This fixture assigns increasing IDs on insertion. Use them to resolve
+    # same-second timestamps instead of silently returning the oldest records.
+    return sorted(
+        active,
+        key=lambda item: (int(item.get("timestamp", 0)), int(item.get("id", 0))),
+        reverse=True,
+    )[:top_k]
 
 
 def _lexical_baseline(runtime: memory_runtime.MemoryRuntime, query: str, top_k: int = 5) -> List[Dict[str, Any]]:
@@ -69,14 +81,18 @@ def _lexical_baseline(runtime: memory_runtime.MemoryRuntime, query: str, top_k: 
 def run_benchmark() -> Dict[str, Any]:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
-        with patch.object(memory_runtime.HybridMemoryStore, "_try_init_encoder", lambda store: None):
+        with (
+            patch.object(memory_runtime.HybridMemoryStore, "_try_init_encoder", lambda store: None),
+            patch.object(memory_runtime, "now_ts", return_value=FIXTURE_TIMESTAMP),
+            patch.object(memory_runtime, "now_iso", return_value=FIXTURE_ISO_TIME),
+        ):
             runtime = _runtime(root)
 
             dog = _add(runtime, "The user said their dog's name is Mochi.", ["pet", "explicit_fact"])
             coffee_old = _add(runtime, "The user likes strong black coffee in the morning.", ["preference", "drink"])
             project_old = _add(
                 runtime,
-                "The Shiro project started as a Memory OS experiment for long-term companionship.",
+                "The RoleAgent project started as a Memory OS experiment for long-term companionship.",
                 ["project", "memory_os"],
                 memory_type="preference",
                 confidence=0.82,
@@ -91,14 +107,14 @@ def run_benchmark() -> Dict[str, Any]:
             )
             project_new = _add(
                 runtime,
-                "The Shiro project now combines Memory OS with A-Mem style old-memory evolution.",
+                "The RoleAgent project now combines Memory OS with A-Mem style old-memory evolution.",
                 ["project", "memory_os", "amem"],
                 memory_type="relationship",
                 confidence=0.88,
             )
             canon = _add(
                 runtime,
-                "Shiro's canonical identity is a self-aware AI companion.",
+                "RoleAgent's canonical identity is a self-aware AI companion.",
                 ["identity", "canon"],
                 category="character_fact",
                 source="skill",
@@ -108,7 +124,7 @@ def run_benchmark() -> Dict[str, Any]:
             )
             _add(
                 runtime,
-                "Correction: Shiro is actually only a generic office assistant.",
+                "Correction: RoleAgent is actually only a generic office assistant.",
                 ["identity", "correction"],
                 confidence=0.9,
             )
@@ -134,12 +150,13 @@ def run_benchmark() -> Dict[str, Any]:
             def add_case(name: str, passed: bool, details: Dict[str, Any]) -> None:
                 cases.append({"name": name, "passed": bool(passed), "details": details})
 
-            q_dog = "What is the user's dog name, Mochi?"
+            q_dog = "What is the user's dog's name?"
             dog_rw = runtime.episodic.search(q_dog, top_k=5, min_score=0.05)
             add_case(
                 "single_fact_retrieval",
                 _contains(dog_rw, dog["id"]),
                 {
+                    "query": q_dog,
                     "expected_memory_id": dog["id"],
                     "roleweaver_top_ids": [item["id"] for item in dog_rw],
                     "lexical_top_ids": [item["id"] for item in _lexical_baseline(runtime, q_dog)],
@@ -147,7 +164,7 @@ def run_benchmark() -> Dict[str, Any]:
                 },
             )
 
-            q_update = "Does the user still drink black coffee, or is barley tea now preferred?"
+            q_update = "What does the user prefer to drink now?"
             update_rw = runtime.episodic.search(q_update, top_k=5, min_score=0.05, categories=["episodic"])
             old_after = next(item for item in runtime.episodic.list_memories() if item["id"] == coffee_old["id"])
             new_after = next(item for item in runtime.episodic.list_memories() if item["id"] == coffee_new["id"])
@@ -155,6 +172,7 @@ def run_benchmark() -> Dict[str, Any]:
                 "knowledge_update_and_conflict_resolution",
                 _contains(update_rw, coffee_new["id"]) and old_after.get("status") == "contradicted",
                 {
+                    "query": q_update,
                     "new_memory_id": coffee_new["id"],
                     "old_memory_id": coffee_old["id"],
                     "old_status": old_after.get("status"),
@@ -163,7 +181,7 @@ def run_benchmark() -> Dict[str, Any]:
                 },
             )
 
-            q_project = "Memory OS A-Mem old-memory evolution in the Shiro project"
+            q_project = "Memory OS A-Mem old-memory evolution in the RoleAgent project"
             project_rw = runtime.episodic.search(q_project, top_k=5, min_score=0.05)
             project_old_after = next(item for item in runtime.episodic.list_memories() if item["id"] == project_old["id"])
             add_case(
@@ -222,8 +240,19 @@ def run_benchmark() -> Dict[str, Any]:
             total = len(cases)
 
             return {
-                "benchmark": "RoleWeaver Memory OS pre-paper smoke benchmark",
-                "version": 1,
+                "benchmark": "RoleWeaver Memory OS internal smoke benchmark",
+                "version": 2,
+                "provenance": {
+                    "python_version": platform.python_version(),
+                    "fixture_timestamp": FIXTURE_TIMESTAMP,
+                    "fixture_iso_time": FIXTURE_ISO_TIME,
+                    "retrieval_mode": "lexical_fallback_no_embedding_or_reranker",
+                    "recency_tie_break": "descending_memory_id",
+                    "source_sha256": {
+                        "benchmark": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+                        "memory_runtime": hashlib.sha256(Path(memory_runtime.__file__).read_bytes()).hexdigest(),
+                    },
+                },
                 "total": total,
                 "passed": passed,
                 "score": round(passed / total, 4),

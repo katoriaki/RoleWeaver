@@ -128,7 +128,7 @@ def save_adapter(model, processor, output_dir: Path, status_path: Path, status: 
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Qwen3-Omni text-only LoRA/QLoRA trainer for RoleWeaver Shiro")
+    parser = argparse.ArgumentParser(description="Qwen3-Omni text-only LoRA/QLoRA trainer for RoleWeaver")
     parser.add_argument("--model-path", default="/public/huggingface-models/Qwen/Qwen3-Omni-30B-A3B-Instruct")
     parser.add_argument("--data-file", required=True)
     parser.add_argument("--output-dir", required=True)

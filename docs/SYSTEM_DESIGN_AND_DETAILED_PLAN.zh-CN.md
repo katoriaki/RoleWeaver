@@ -4,14 +4,14 @@
 
 ## 1. 项目定位
 
-RoleWeaver 是角色型长期陪伴智能体的运行底座。它负责把底模、LoRA、skill、记忆、工具、前端、LINE、TTS、远端 A800 服务和 Shiro 认知层统一到一个可启动、可配置、可观察的本地系统里。
+RoleWeaver 是角色型长期陪伴智能体的运行底座。它负责把底模、LoRA、skill、记忆、工具、前端、LINE、TTS、远端 A800 服务统一到一个可启动、可配置、可观察的本地系统里。
 
 它不直接等同于“人格本身”。RoleWeaver 的边界是：
 
 - 提供稳定的模型服务和多端入口；
 - 管理角色会话、记忆目录、配置快照和运行状态；
 - 提供 Memory OS、反思、矛盾链、遗忘、锚点、工具调用等基础设施；
-- 与 `Roleweaver.skill` 读取角色定义，与 `shiro` 读取更高层认知状态。
+- 通过 `SKILL.md` 与 persona kernel 读取角色定义。
 
 ## 2. 顶层架构
 
@@ -19,13 +19,12 @@ RoleWeaver 是角色型长期陪伴智能体的运行底座。它负责把底模
 flowchart TD
     UI["Vue 一站式控制台"] --> API["FastAPI / API.py"]
     LINE["LINE Bot"] --> API
-    UNITY["Unity / Shiro 桌宠"] --> API
+    UNITY["Unity 外部客户端"] --> API
     API --> CFG["roleweaver.config.csv / 会话设置"]
     API --> CHAT["role_chat_service.py"]
     CHAT --> MODEL["本地或 A800 模型运行时"]
     CHAT --> MEM["MemoryRuntime / Memory OS"]
     CHAT --> SKILL["skill.md / persona_kernel.json"]
-    CHAT --> SHIRO["Shiro Bridge"]
     API --> TOOLS["Tool Runtime"]
     API --> BG["Background Scheduler"]
     BG --> MEM
@@ -47,7 +46,7 @@ flowchart TD
 - 远端模式：A800 运行 Qwen3-Omni 等重模型，本地通过 SSH 隧道或 HTTP 访问。
 - LoRA 可选：空值时直接加载底模。
 - 量化可配置：本地默认 4bit；A800 默认 bf16，不做不必要量化。
-- 多模态入口：文本稳定优先，图片已走 vision/omni 分支；音频/视频后续统一到 Shiro 多模态感知层。
+- 多模态入口：文本稳定优先，图片已走 vision/omni 分支；音频/视频入口仍需独立适配与验证。
 
 ### 3.3 Memory OS
 
@@ -65,7 +64,7 @@ flowchart TD
 
 ### 3.4 工具层
 
-工具调用不直接使用裸 ReAct，而是采用 Shiro/RoleWeaver 共享的意图层：
+工具调用不直接使用裸 ReAct，而是采用 RoleWeaver 的受控工具层：
 
 - tool desire：想调用什么；
 - tool risk：是否需要用户确认；
@@ -76,9 +75,9 @@ flowchart TD
 
 ### 3.5 前端与外部入口
 
-- Vue 控制台：聊天、设置、记忆、工具、LINE、训练、Shiro 状态、临时公网地址说明。
+- Vue 控制台：聊天、设置、记忆、工具、LINE、训练、临时公网地址说明。
 - LINE Bot：文本、图片、可选语音回复、定时 push。
-- Unity Client：作为 Shiro 桌宠/3D 前端，显示状态、情绪、对话与远端模型连接。
+- Unity Client：可作为外部3D客户端，连接对话与远端模型服务。
 - TTS：GPT-SoVITS 本地服务，本地声纹合成与远端 LLM 分离。
 
 ## 4. 详细方案
@@ -113,13 +112,6 @@ flowchart TD
 - persona regression：身份、边界、长对话漂移、媒介适配、记忆污染。
 - memory benchmark：内部 smoke benchmark + 公开 LongMemEval/LoCoMo/MemoryAgentBench/PERMA 适配。
 - companion evaluation：自我连续性、关系连续性、自主性、情绪行为一致性、长期漂移和依赖风险。
-
-### M6 Shiro Bridge
-
-- RoleWeaver 读取 Shiro thought context；
-- 聊天后把输入/输出作为 stimulus 写回 Shiro；
-- 前端和 Unity 显示 Shiro 当前认知、情绪、计划、学习状态；
-- 但 RoleWeaver 不拥有 Shiro 的人格核心，保持项目分离。
 
 ## 5. 论文级目标
 

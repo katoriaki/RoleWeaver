@@ -6,6 +6,8 @@ RoleWeaver turns a base LLM, an optional LoRA adapter, and an optional role skil
 
 ## Latest Update
 
+Research status: RoleWeaver is an experimental runtime. Its CPU smoke/regression checks do not establish improved persona fidelity or reproduce a research paper. See the [research readiness review and upgrade notes](docs/RESEARCH_READINESS_REVIEW.zh-CN.md) for verified capabilities, remaining work, memory-scope migration, and model-free test commands.
+
 2026-04-29:
 
 - Added a one-stop local Web console entry for LINE Bot configuration.
@@ -14,8 +16,6 @@ RoleWeaver turns a base LLM, an optional LoRA adapter, and an optional role skil
 - Added Persona Anchor Replay: short official/reference-derived anchors can be loaded beside `SKILL.md` and replayed as non-memory persona calibration context.
 - Added a single-GPU background scheduler. Light jobs such as planning refresh, memory snapshots, and inactive-model release can run in idle windows; LLM background jobs stay disabled until explicitly allowed.
 - Added a controlled tool layer: `/tools`, `/tools/run`, and `/tools/actions` expose whitelisted time, planning, memory, background, LINE/Tunnel, and training status tools with action logs.
-- Added an optional Shiro Bridge that reads cognitive context from the separate `shiro/` project, writes chat turns back as stimuli, and exposes a Shiro status page in the Web console.
-- Added the first Shiro M6.3 tool-intention path for PDF reading and web-search solution lookup; RoleWeaver now exposes `document.pdf_read`.
 - Added Planning APIs: `GET /planning/{session_id}`, `POST /planning/{session_id}/regenerate`, and `GET /planning/search`.
 - Regenerated the Hataya Misuzu persona kernel for the current schema, including autonomy, memory boundaries, media adaptation, and planning-state safeguards.
 - The Web UI can now edit `line/.env` and `line/surface_policy.json`.

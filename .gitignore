@@ -52,9 +52,8 @@ data/qqbot_audio/
 data/background/
 data/learning/
 data/quarantine/
-data/shiro_persona_sft/
+data/persona_sft/
 data/tool_actions/
-shiro/
 data/line_audio/
 data/line_images/
 data/uploads/
@@ -66,7 +65,7 @@ training_runs/
 dist/*.zip
 .codex_tmp/
 resources/qwen35_lora_training/role_sft_template_preview.png
-resources/shiro_persona_sft/raw/**/*.jsonl
+resources/persona_sft/raw/**/*.jsonl
 resources/textbooks/ChinaTextbook/
 eval/persona_regression/reports/*.json
 eval/memory_benchmark/reports/*.json

@@ -10,9 +10,9 @@
 - Improved lexical fallback token filtering to avoid spurious English possessive matches in abstention tests.
 - Memory smoke benchmark result: `8/8 = 100.00%`.
 
-### Shiro A800 Omni LoRA
+### Qwen3-Omni LoRA
 
-- Added a remote Qwen3-Omni text-persona LoRA training workflow for Shiro on the A800 server.
+- Added a remote Qwen3-Omni text-persona LoRA training workflow on the A800 server.
 - Added `resources/qwen3_omni_training/train_qwen3_omni_text_lora.py` for conservative single-GPU Omni thinker training:
   - text-only SFT;
   - optional 4-bit loading;
@@ -24,7 +24,6 @@
   - `watch_remote_training.py`
   - `watch_remote_omni_training.bat`
 - Added A800 dependency notes and PEFT/datasets/bitsandbytes requirements to the server package.
-- Completed a Shiro persona blend training run on the A800 server and configured the A800 service to load the final adapter path.
 
 ### Omni Runtime Loading
 
@@ -32,43 +31,7 @@
 - Added a compatibility path for current PEFT/Transformers versions by manually loading LoRA safetensor keys into the Omni thinker when the standard PEFT loader fails.
 - Preserved text-first Omni serving while keeping the door open for image/audio inputs through the existing multimodal runtime.
 
-### Shiro Persona Dataset Tools
-
-- Added Shiro persona SFT preparation tools under `resources/shiro_persona_sft/`.
-- Added a manifest-based blend builder so user-owned dialogue extracts can be mixed with Shiro core persona samples.
-- Kept raw extracted dialogue data out of Git by default; the repository now tracks reproducible tooling and examples rather than private or copyrighted source data.
-- Added documentation for the Shiro persona blend workflow in `docs/SHIRO_PERSONA_SFT_BLEND.zh-CN.md`.
-
-### Unity And Remote Companion Flow
-
-- Added documentation for the Shiro Unity companion client, VRM import workflow, Unity dialogue flow, and A800 Omni deployment.
-- Added example A800/Shiro config files while keeping local SSH credentials and runtime state ignored.
-- Tightened `.gitignore` for generated zip packages, learning runtime state, quarantine data, local persona datasets, and raw SFT extracts.
-
 ## 2026-04-29
-
-### Shiro Bridge
-
-- Added optional Shiro cognitive bridge for M6.2 while keeping Shiro as a separate project.
-- Added `shiro_bridge.py`, which dynamically imports `shiro/src` when `shiro_enabled=true`.
-- Added config fields:
-  - `shiro_enabled`
-  - `shiro_root`
-  - `shiro_identity`
-- Role mode now injects Shiro `thought_context` into the system prompt when enabled.
-- Successful web and image chat turns are written back to Shiro as cognitive stimuli.
-- Added Shiro API endpoints:
-  - `GET /sessions/{session_id}/shiro`
-  - `POST /sessions/{session_id}/shiro/observe`
-- Added a Shiro page in the Vue console for status, thought context, recent transitions, and manual stimulus input.
-- Added [Shiro Bridge Design](docs/SHIRO_BRIDGE.zh-CN.md).
-
-### Tool Intention Layer
-
-- Added Shiro M6.3 tool-intention inference for PDF reading and web-search solution lookup.
-- Added `POST /sessions/{session_id}/shiro/tool-intentions`.
-- Added `document.pdf_read` to the RoleWeaver tool layer for read-only local PDF text extraction.
-- The Shiro page can now infer tool intentions and show risk, confirmation requirement, external-action status, and memory policy.
 
 ### Tool Layer
 

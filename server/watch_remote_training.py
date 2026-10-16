@@ -42,7 +42,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Watch a remote RoleWeaver training run through SSH")
     parser.add_argument("--config", default=str(DEFAULT_CONFIG))
     parser.add_argument("--remote-root", default="/root/data/RoleWeaver_A800_Server")
-    parser.add_argument("--run-dir", default="training_runs/qwen3_omni_shiro_persona/latest")
+    parser.add_argument("--run-dir", default="training_runs/qwen3_omni_persona/latest")
     parser.add_argument("--interval", type=float, default=5.0)
     parser.add_argument("--tail-lines", type=int, default=24)
     args = parser.parse_args()

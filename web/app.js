@@ -601,69 +601,9 @@ Object.assign(I18N.en, {
 });
 
 Object.assign(I18N.zh, {
-  shiro: "白",
-  shiroTitle: "白的认知状态",
-  shiroBody: "查看 Shiro 认知层传给 RoleWeaver 的 thought context，以及最近状态转移。Shiro 项目仍保持独立，只通过桥接读取和回写。",
-  shiroEnabled: "启用 Shiro 认知桥接",
-  shiroRoot: "Shiro 状态目录",
-  shiroIdentity: "Shiro 身份名",
-  shiroStatus: "Shiro 状态",
-  emotionState: "情绪状态",
-  live2dSignal: "Live2D外显",
-  thoughtContext: "Thought Context",
-  recentTransitions: "最近状态转移",
-  observeStimulus: "手动写入刺激",
-  stimulusText: "刺激文本",
-  stimulusSource: "刺激来源",
-  toolIntentions: "工具意图",
-  inferToolIntentions: "推断工具意图",
-  intentionText: "意图输入",
-});
-
-Object.assign(I18N.ja, {
-  shiro: "白",
-  shiroTitle: "白の認知状態",
-  shiroBody: "Shiro 認知層から RoleWeaver に渡される thought context と最近の状態遷移を確認します。Shiro は独立プロジェクトのまま、bridge 経由で読み書きします。",
-  shiroEnabled: "Shiro 認知 bridge を有効化",
-  shiroRoot: "Shiro 状態ディレクトリ",
-  shiroIdentity: "Shiro identity",
-  shiroStatus: "Shiro 状態",
-  emotionState: "感情状態",
-  live2dSignal: "Live2D 表現",
-  thoughtContext: "Thought Context",
-  recentTransitions: "最近の状態遷移",
-  observeStimulus: "刺激を手動記録",
-  stimulusText: "刺激テキスト",
-  stimulusSource: "刺激ソース",
-  toolIntentions: "ツール意図",
-  inferToolIntentions: "ツール意図を推定",
-  intentionText: "意図入力",
-});
-
-Object.assign(I18N.en, {
-  shiro: "Shiro",
-  shiroTitle: "Shiro Cognitive State",
-  shiroBody: "Inspect the thought context passed from Shiro to RoleWeaver and recent state transitions. Shiro remains a separate project and is connected only through the bridge.",
-  shiroEnabled: "Enable Shiro cognitive bridge",
-  shiroRoot: "Shiro state directory",
-  shiroIdentity: "Shiro identity",
-  shiroStatus: "Shiro status",
-  emotionState: "Emotion",
-  live2dSignal: "Live2D",
-  thoughtContext: "Thought Context",
-  recentTransitions: "Recent transitions",
-  observeStimulus: "Observe stimulus",
-  stimulusText: "Stimulus text",
-  stimulusSource: "Stimulus source",
-  toolIntentions: "Tool intentions",
-  inferToolIntentions: "Infer tool intentions",
-  intentionText: "Intention input",
-});
-
-Object.assign(I18N.zh, {
   pet: "桌宠",
   petTitle: "Live2D 桌宠",
-  petBody: "用 VTube Studio 渲染 Live2D 形象，RoleWeaver 前端负责连接、同步白的情绪状态，并触发表情或动作。",
+  petBody: "用 VTube Studio 渲染自选 Live2D 形象，通过 RoleWeaver 连接并触发表情或热键。",
   petModel: "模型",
   petModelPath: "模型目录",
   petVtsUrl: "VTube Studio API",
@@ -677,7 +617,6 @@ Object.assign(I18N.zh, {
   petRequestToken: "请求授权",
   petAuthenticate: "授权连接",
   petRefresh: "刷新模型/热键",
-  petSyncEmotion: "同步白的情绪",
   petTriggerExpression: "触发表情",
   petTriggerHotkey: "触发热键",
   petExpression: "表情",
@@ -690,7 +629,7 @@ Object.assign(I18N.zh, {
 Object.assign(I18N.ja, {
   pet: "デスクペット",
   petTitle: "Live2D デスクペット",
-  petBody: "VTube Studio で Live2D を描画し、RoleWeaver 側から白の感情状態を同期して表情やモーションを送ります。",
+  petBody: "VTube Studio で選択した Live2D モデルを描画し、RoleWeaver から接続して表情やホットキーを送ります。",
   petModel: "モデル",
   petModelPath: "モデルフォルダ",
   petVtsUrl: "VTube Studio API",
@@ -704,7 +643,6 @@ Object.assign(I18N.ja, {
   petRequestToken: "認証を要求",
   petAuthenticate: "認証",
   petRefresh: "モデル/ホットキー更新",
-  petSyncEmotion: "白の感情を同期",
   petTriggerExpression: "表情を送る",
   petTriggerHotkey: "ホットキー実行",
   petExpression: "表情",
@@ -717,7 +655,7 @@ Object.assign(I18N.ja, {
 Object.assign(I18N.en, {
   pet: "Pet",
   petTitle: "Live2D Desktop Pet",
-  petBody: "Render the Live2D avatar in VTube Studio while RoleWeaver connects, syncs Shiro's emotion state, and triggers expressions or motions.",
+  petBody: "Render your chosen Live2D avatar in VTube Studio and use RoleWeaver to connect, trigger expressions, and run hotkeys.",
   petModel: "Model",
   petModelPath: "Model folder",
   petVtsUrl: "VTube Studio API",
@@ -731,7 +669,6 @@ Object.assign(I18N.en, {
   petRequestToken: "Request token",
   petAuthenticate: "Authenticate",
   petRefresh: "Refresh model/hotkeys",
-  petSyncEmotion: "Sync Shiro emotion",
   petTriggerExpression: "Trigger expression",
   petTriggerHotkey: "Trigger hotkey",
   petExpression: "Expression",
@@ -743,9 +680,9 @@ Object.assign(I18N.en, {
 
 Object.assign(I18N.zh, {
   learning: "自学",
-  learningTitle: "Shiro 长时间自学",
-  learningBody: "让白以学生身份读取 ChinaTextbook 教材，分阶段学习、做题、回写情绪状态和 adapter 候选样本。",
-  learningBootstrap: "唤醒 Shiro / 开启视觉配置",
+  learningTitle: "RoleWeaver 长时间自学",
+  learningSession: "学习会话 ID",
+  learningBody: "从教材目录读取资料，分阶段学习、做题，并保存学习笔记和 adapter 候选样本。",
   learningStatus: "学习状态",
   learningSubject: "科目筛选",
   learningUseModel: "调用本地模型",
@@ -760,9 +697,9 @@ Object.assign(I18N.zh, {
 
 Object.assign(I18N.ja, {
   learning: "自学",
-  learningTitle: "Shiro 長時間自学",
-  learningBody: "白を学生として ChinaTextbook 教材から段階的に学習させ、テスト、感情状態、adapter 候補を記録します。",
-  learningBootstrap: "Shiro 起動 / vision 設定",
+  learningTitle: "RoleWeaver 長時間学習",
+  learningSession: "学習セッション ID",
+  learningBody: "教材フォルダから資料を読み、段階的に学習と演習を進め、学習ノートと adapter 候補を保存します。",
   learningStatus: "学習状態",
   learningSubject: "科目フィルタ",
   learningUseModel: "ローカルモデルを使う",
@@ -777,9 +714,9 @@ Object.assign(I18N.ja, {
 
 Object.assign(I18N.en, {
   learning: "Learning",
-  learningTitle: "Shiro Long-Term Study",
-  learningBody: "Let Shiro study ChinaTextbook as a student, run phase quizzes, update emotion state, and collect adapter candidates.",
-  learningBootstrap: "Wake Shiro / enable vision config",
+  learningTitle: "RoleWeaver Long-Term Study",
+  learningSession: "Learning session ID",
+  learningBody: "Study materials from the textbook folder, work through exercises, and save study notes and adapter candidates.",
   learningStatus: "Learning status",
   learningSubject: "Subject filter",
   learningUseModel: "Use local model",
@@ -795,9 +732,9 @@ Object.assign(I18N.en, {
 Object.assign(I18N.zh, {
   setup: "统一配置",
   setupTitle: "统一配置入口",
-  setupBody: "集中配置模型、视觉加载、Shiro、学习运行时、Live2D 桌宠和 LINE/TTS。这里是正式运行前的总控台。",
+  setupBody: "集中配置模型、视觉加载、学习运行时、Live2D 和 LINE/TTS。这里是正式运行前的总控台。",
   setupModelBlock: "模型与角色",
-  setupShiroBlock: "Shiro / 学习",
+  setupLearningBlock: "学习设置",
   setupPetBlock: "Live2D / VTube Studio",
   setupLineBlock: "LINE / TTS",
   setupSaveAll: "保存并重置运行时",
@@ -809,9 +746,9 @@ Object.assign(I18N.zh, {
 Object.assign(I18N.ja, {
   setup: "統一設定",
   setupTitle: "統一設定入口",
-  setupBody: "モデル、vision loader、Shiro、学習ランタイム、Live2D デスクペット、LINE/TTS をまとめて設定します。",
+  setupBody: "モデル、vision loader、学習ランタイム、Live2D、LINE/TTS をまとめて設定します。",
   setupModelBlock: "モデルと人格",
-  setupShiroBlock: "Shiro / 学習",
+  setupLearningBlock: "学習設定",
   setupPetBlock: "Live2D / VTube Studio",
   setupLineBlock: "LINE / TTS",
   setupSaveAll: "保存してランタイム再起動",
@@ -823,9 +760,9 @@ Object.assign(I18N.ja, {
 Object.assign(I18N.en, {
   setup: "Setup",
   setupTitle: "Unified Setup",
-  setupBody: "Configure model, vision loading, Shiro, learning runtime, Live2D desktop pet, and LINE/TTS from one place.",
+  setupBody: "Configure model, vision loading, learning runtime, Live2D, and LINE/TTS from one place.",
   setupModelBlock: "Model and role",
-  setupShiroBlock: "Shiro / learning",
+  setupLearningBlock: "Learning settings",
   setupPetBlock: "Live2D / VTube Studio",
   setupLineBlock: "LINE / TTS",
   setupSaveAll: "Save and reset runtime",
@@ -867,15 +804,6 @@ createApp({
         actor: "user",
       },
       toolOutput: null,
-      shiro: {},
-      shiroObserveForm: {
-        text: "",
-        source: "manual",
-      },
-      shiroIntentForm: {
-        text: "",
-      },
-      shiroIntentions: [],
       petModel: null,
       vts: {
         url: "ws://127.0.0.1:8001",
@@ -891,7 +819,7 @@ createApp({
       },
       learning: {},
       learningForm: {
-        session_id: "shiro-study",
+        session_id: "role-study",
         subject: "",
         use_model: false,
         max_new_tokens: 384,
@@ -937,7 +865,6 @@ createApp({
         ["planning", "planning", "◷"],
         ["background", "background", "⏱"],
         ["tools", "tools", "T"],
-        ["shiro", "shiro", "白"],
         ["pet", "pet", "P"],
         ["learning", "learning", "L"],
         ["training", "training", "△"],
@@ -1018,7 +945,6 @@ createApp({
         this.loadPlanning(),
         this.refreshBackground(),
         this.refreshTools(),
-        this.refreshShiro(),
         this.refreshPetModel(),
         this.refreshLearning(),
         this.refreshTraining(),
@@ -1074,7 +1000,6 @@ createApp({
         this.messages = [];
         this.saveMessages();
         await this.listSessions();
-        await this.refreshShiro();
       } catch (err) {
         this.toast(`${this.t("requestFailed")}: ${err.message}`);
       }
@@ -1090,7 +1015,6 @@ createApp({
         this.saveMessages();
         await this.checkHealth();
         await this.loadPlanning();
-        await this.refreshShiro();
       } catch (err) {
         this.toast(`${this.t("requestFailed")}: ${err.message}`);
       }
@@ -1173,7 +1097,6 @@ createApp({
       } finally {
         this.busy = false;
         this.saveMessages();
-        this.refreshShiro();
       }
     },
     async consolidate() {
@@ -1352,47 +1275,6 @@ createApp({
         this.toast(`${this.t("requestFailed")}: ${err.message}`);
       }
     },
-    async refreshShiro() {
-      if (!this.sessionId) return;
-      try {
-        this.shiro = await this.api(`/sessions/${encodeURIComponent(this.sessionId)}/shiro`);
-      } catch (err) {
-        this.shiro = { available: false, error: err.message };
-      }
-    },
-    async observeShiroStimulus() {
-      try {
-        await this.api(`/sessions/${encodeURIComponent(this.sessionId)}/shiro/observe`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            text: this.shiroObserveForm.text || "",
-            source: this.shiroObserveForm.source || "manual",
-            metadata: {},
-          }),
-        });
-        this.shiroObserveForm.text = "";
-        await this.refreshShiro();
-      } catch (err) {
-        this.toast(`${this.t("requestFailed")}: ${err.message}`);
-      }
-    },
-    async inferShiroToolIntentions() {
-      try {
-        const data = await this.api(`/sessions/${encodeURIComponent(this.sessionId)}/shiro/tool-intentions`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            text: this.shiroIntentForm.text || "",
-            metadata: {},
-          }),
-        });
-        this.shiroIntentions = data.intentions || [];
-      } catch (err) {
-        this.shiroIntentions = [{ tool_name: "error", reason: err.message }];
-        this.toast(`${this.t("requestFailed")}: ${err.message}`);
-      }
-    },
     async refreshPetModel() {
       try {
         this.petModel = await this.api("/pet/model");
@@ -1482,7 +1364,7 @@ createApp({
     async vtsRequestToken() {
       try {
         await this.vtsConnect();
-        const pluginName = (this.petModel && this.petModel.vts_plugin_name) || "RoleWeaver Shiro Pet";
+        const pluginName = (this.petModel && this.petModel.vts_plugin_name) || "RoleWeaver Pet";
         const pluginDeveloper = (this.petModel && this.petModel.vts_plugin_developer) || "RoleWeaver";
         const response = await this.vtsRequest("AuthenticationTokenRequest", { pluginName, pluginDeveloper }, 60000);
         this.vts.token = response.data.authenticationToken || "";
@@ -1498,7 +1380,7 @@ createApp({
       try {
         await this.vtsConnect();
         if (!this.vts.token) throw new Error(this.t("petTokenRequired"));
-        const pluginName = (this.petModel && this.petModel.vts_plugin_name) || "RoleWeaver Shiro Pet";
+        const pluginName = (this.petModel && this.petModel.vts_plugin_name) || "RoleWeaver Pet";
         const pluginDeveloper = (this.petModel && this.petModel.vts_plugin_developer) || "RoleWeaver";
         const response = await this.vtsRequest("AuthenticationRequest", {
           pluginName,
@@ -1560,50 +1442,15 @@ createApp({
         this.toast(`${this.t("requestFailed")}: ${err.message}`);
       }
     },
-    expressionForEmotion(primary) {
-      const map = {
-        warm: "exp/4.exp3.json",
-        playful: "exp/8.exp3.json",
-        focused: "exp/7.exp3.json",
-        curious: "exp/8.exp3.json",
-        guarded: "exp/5.exp3.json",
-        hurt: "exp/6.exp3.json",
-        tired: "exp/1.exp3.json",
-        neutral: "",
-      };
-      return map[primary || "neutral"] || "";
-    },
-    async syncPetWithShiro() {
-      await this.refreshShiro();
-      const emotion = ((this.shiro.state || {}).emotion || {}).primary || "neutral";
-      const expressionFile = this.expressionForEmotion(emotion);
-      if (expressionFile) {
-        await this.vtsTriggerExpression(expressionFile);
-      } else {
-        await this.vtsResetExpressions();
-      }
-      this.vts.lastAction = `${this.t("emotionState")}: ${emotion}`;
-    },
     async refreshLearning() {
       try {
         const params = new URLSearchParams({
-          session_id: this.learningForm.session_id || "shiro-study",
+          session_id: this.learningForm.session_id || "role-study",
           subject: this.learningForm.subject || "",
         });
         this.learning = await this.api(`/learning/status?${params.toString()}`);
       } catch (err) {
         this.learning = { error: err.message };
-      }
-    },
-    async bootstrapLearningShiro() {
-      try {
-        const data = await this.api("/learning/bootstrap-shiro", { method: "POST" });
-        this.config = data.config || this.config;
-        await this.refreshLearning();
-        await this.refreshShiro();
-        this.toast(this.t("saved"));
-      } catch (err) {
-        this.toast(`${this.t("requestFailed")}: ${err.message}`);
       }
     },
     async runLearningOnce() {
@@ -1613,8 +1460,6 @@ createApp({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(this.learningForm),
         });
-        await this.refreshShiro();
-        if (this.vts.connected) await this.syncPetWithShiro();
       } catch (err) {
         this.toast(`${this.t("requestFailed")}: ${err.message}`);
       }
@@ -1787,9 +1632,8 @@ createApp({
         </section>
 
         <section v-if="activeView === 'setup'" class="grid">
-          <div class="grid three">
+          <div class="grid two">
             <div class="metric"><span>{{ t('model') }}</span><strong>{{ config.model_loader_mode || '-' }}</strong></div>
-            <div class="metric"><span>{{ t('shiro') }}</span><strong>{{ config.shiro_enabled ? t('online') : t('offline') }}</strong></div>
             <div class="metric"><span>{{ t('pet') }}</span><strong>{{ vts.connected ? t('petConnected') : t('petDisconnected') }}</strong></div>
           </div>
           <div class="grid two">
@@ -1807,14 +1651,10 @@ createApp({
               </div>
             </div>
             <div class="card pad">
-              <h3>{{ t('setupShiroBlock') }}</h3>
-              <label><input type="checkbox" v-model="config.shiro_enabled"> {{ t('shiroEnabled') }}</label>
+              <h3>{{ t('setupLearningBlock') }}</h3>
               <label><input type="checkbox" v-model="config.preload_model_on_startup"> {{ t('preloadModelOnStartup') }}</label>
-              <div class="field"><label>{{ t('shiroRoot') }}</label><input v-model="config.shiro_root"></div>
-              <div class="field"><label>{{ t('shiroIdentity') }}</label><input v-model="config.shiro_identity"></div>
               <div class="field"><label>{{ t('learningSubject') }}</label><input v-model="learningForm.subject"></div>
               <div class="toolbar">
-                <button class="secondary" @click="bootstrapLearningShiro">{{ t('learningBootstrap') }}</button>
                 <button class="secondary" @click="activeView = 'learning'">{{ t('setupOpenLearning') }}</button>
               </div>
             </div>
@@ -1901,9 +1741,6 @@ createApp({
             <div class="field"><label>{{ t('autonomousLearningSubjects') }}</label><input v-model="config.autonomous_learning_subjects" placeholder="mathematics, computer science"></div>
             <div class="field"><label>{{ t('autonomousLearningInterval') }}</label><input type="number" min="60" step="60" v-model.number="config.autonomous_learning_interval_seconds"></div>
             <div class="field"><label>{{ t('autonomousLearningMaxTokens') }}</label><input type="number" min="64" step="64" v-model.number="config.autonomous_learning_max_new_tokens"></div>
-            <label><input type="checkbox" v-model="config.shiro_enabled"> {{ t('shiroEnabled') }}</label>
-            <div class="field"><label>{{ t('shiroRoot') }}</label><input v-model="config.shiro_root"></div>
-            <div class="field"><label>{{ t('shiroIdentity') }}</label><input v-model="config.shiro_identity"></div>
             <div class="field"><label>{{ t('uiLanguage') }}</label><select v-model="config.ui_language"><option value="zh">中文</option><option value="ja">日本語</option><option value="en">English</option></select></div>
             <div class="field" style="grid-column:1/-1"><label>{{ t('inlineSkill') }}</label><textarea v-model="config.skill_text" :placeholder="t('inlineSkillPlaceholder')"></textarea></div>
           </div>
@@ -2093,70 +1930,14 @@ createApp({
           </div>
         </section>
 
-        <section v-if="activeView === 'shiro'" class="grid">
-          <div class="grid three">
-            <div class="metric"><span>{{ t('shiroEnabled') }}</span><strong>{{ shiro.enabled ? 'yes' : 'no' }}</strong></div>
-            <div class="metric"><span>{{ t('online') }}</span><strong>{{ shiro.available ? 'yes' : 'no' }}</strong></div>
-            <div class="metric"><span>{{ t('shiroIdentity') }}</span><strong>{{ shiro.identity || config.shiro_identity || '白' }}</strong></div>
-            <div class="metric"><span>{{ t('emotionState') }}</span><strong>{{ ((shiro.state || {}).emotion || {}).primary || '-' }}</strong></div>
-            <div class="metric"><span>{{ t('live2dSignal') }}</span><strong>{{ (shiro.live2d || ((shiro.state || {}).emotion || {}).live2d || {}).expression || '-' }}</strong></div>
-            <div class="metric"><span>Motion</span><strong>{{ (shiro.live2d || ((shiro.state || {}).emotion || {}).live2d || {}).motion || '-' }}</strong></div>
-          </div>
-          <div class="grid two">
-            <div class="card pad">
-              <h3>{{ t('thoughtContext') }}</h3>
-              <pre class="log-box">{{ shiro.thought_context || (shiro.error ? shiro.error : '') }}</pre>
-            </div>
-            <div class="card pad">
-              <h3>{{ t('observeStimulus') }}</h3>
-              <div class="field"><label>{{ t('stimulusSource') }}</label><input v-model="shiroObserveForm.source"></div>
-              <div class="field"><label>{{ t('stimulusText') }}</label><textarea class="textarea-code" v-model="shiroObserveForm.text"></textarea></div>
-              <div class="toolbar">
-                <button class="secondary" @click="refreshShiro">{{ t('refresh') }}</button>
-                <button class="primary" @click="observeShiroStimulus">{{ t('observeStimulus') }}</button>
-              </div>
-            </div>
-          </div>
-          <div class="card pad">
-            <h3>{{ t('toolIntentions') }}</h3>
-            <div class="field"><label>{{ t('intentionText') }}</label><textarea class="textarea-code" v-model="shiroIntentForm.text" placeholder="帮我读 C:\\docs\\paper.pdf，并上网搜解法"></textarea></div>
-            <div class="toolbar"><button class="primary" @click="inferShiroToolIntentions">{{ t('inferToolIntentions') }}</button></div>
-            <div class="memory-card" v-for="item in shiroIntentions" :key="item.tool_name + item.desire">
-              <strong>{{ item.tool_name }} · {{ item.risk_level || '-' }}</strong>
-              <p>{{ item.reason }}</p>
-              <div class="memory-meta">
-                <span class="chip">{{ item.requires_confirmation ? 'confirm' : 'auto-ok' }}</span>
-                <span class="chip">{{ item.external_action ? 'external' : 'local' }}</span>
-                <span class="chip">{{ item.outcome_memory_policy }}</span>
-              </div>
-              <pre class="log-box">{{ JSON.stringify(item.suggested_arguments || {}, null, 2) }}</pre>
-            </div>
-          </div>
-          <div class="card pad">
-            <h3>{{ t('shiroStatus') }}</h3>
-            <pre class="log-box">{{ JSON.stringify(shiro.state || shiro, null, 2) }}</pre>
-          </div>
-          <div class="card pad">
-            <h3>{{ t('recentTransitions') }}</h3>
-            <div class="memory-card" v-for="item in (shiro.recent_transitions || []).slice().reverse()" :key="item.timestamp + item.source">
-              <strong>{{ item.source }} · {{ item.timestamp }}</strong>
-              <p>{{ (item.notes || []).join('; ') }}</p>
-              <div class="memory-meta">
-                <span class="chip" v-for="(value, key) in item.signals" :key="key">{{ key }}: {{ value }}</span>
-              </div>
-            </div>
-          </div>
-        </section>
-
         <section v-if="activeView === 'pet'" class="grid">
-          <div class="grid three">
+          <div class="grid two">
             <div class="metric"><span>{{ t('petConnection') }}</span><strong>{{ vts.authenticated ? t('petAuthenticated') : (vts.connected ? t('petConnected') : t('petDisconnected')) }}</strong></div>
-            <div class="metric"><span>{{ t('emotionState') }}</span><strong>{{ ((shiro.state || {}).emotion || {}).primary || '-' }}</strong></div>
-            <div class="metric"><span>{{ t('live2dSignal') }}</span><strong>{{ (shiro.live2d || ((shiro.state || {}).emotion || {}).live2d || {}).expression || '-' }}</strong></div>
+            <div class="metric"><span>{{ t('petModel') }}</span><strong>{{ (petModel && petModel.model_name) || '-' }}</strong></div>
           </div>
           <div class="grid two">
             <div class="card pad pet-stage">
-              <div class="pet-avatar" :class="[((shiro.state || {}).emotion || {}).primary || 'neutral']">
+              <div class="pet-avatar">
                 <div class="pet-face">
                   <span></span><span></span>
                 </div>
@@ -2176,6 +1957,7 @@ createApp({
               <div class="field"><label>{{ t('petModelPath') }}</label><input :value="petModel && petModel.model_root || ''" readonly></div>
               <div class="field"><label>{{ t('petVtsUrl') }}</label><input v-model="vts.url"></div>
               <div class="field"><label>{{ t('petCurrentModel') }}</label><pre class="log-box">{{ JSON.stringify(vts.currentModel || {}, null, 2) }}</pre></div>
+              <p class="warn-text" v-if="petModel && petModel.error">{{ petModel.error }}</p>
               <p class="warn-text" v-if="vts.error">{{ vts.error }}</p>
               <p v-if="vts.lastAction">{{ vts.lastAction }}</p>
             </div>
@@ -2192,7 +1974,6 @@ createApp({
                 </select>
               </div>
               <div class="toolbar">
-                <button class="primary" @click="syncPetWithShiro">{{ t('petSyncEmotion') }}</button>
                 <button class="secondary" @click="vtsTriggerExpression()">{{ t('petTriggerExpression') }}</button>
               </div>
             </div>
@@ -2223,7 +2004,7 @@ createApp({
           <div class="grid two">
             <div class="card pad">
               <h3>{{ t('learningTitle') }}</h3>
-              <div class="field"><label>{{ t('shiroIdentity') }}</label><input v-model="learningForm.session_id"></div>
+              <div class="field"><label>{{ t('learningSession') }}</label><input v-model="learningForm.session_id"></div>
               <div class="field"><label>{{ t('learningSubject') }}</label><input v-model="learningForm.subject" placeholder="数学 / 小学 / 高中"></div>
               <div class="grid two">
                 <div class="field"><label>{{ t('maxTokens') }}</label><input type="number" v-model.number="learningForm.max_new_tokens"></div>
@@ -2232,7 +2013,6 @@ createApp({
                 <label><input type="checkbox" v-model="learningForm.use_model"> {{ t('learningUseModel') }}</label>
               </div>
               <div class="toolbar">
-                <button class="secondary" @click="bootstrapLearningShiro">{{ t('learningBootstrap') }}</button>
                 <button class="secondary" @click="refreshLearning">{{ t('refresh') }}</button>
                 <button class="primary" @click="runLearningOnce">{{ t('learningRunOnce') }}</button>
                 <button class="primary" @click="startLearning">{{ t('learningStart') }}</button>

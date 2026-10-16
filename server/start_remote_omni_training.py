@@ -17,7 +17,6 @@ import paramiko
 DEFAULT_CONFIG = ROOT / "server" / "ssh_tunnel.config.local.csv"
 DEFAULT_REMOTE_ROOT = "/root/data/RoleWeaver_A800_Server"
 DEFAULT_MODEL_PATH = "/public/huggingface-models/Qwen/Qwen3-Omni-30B-A3B-Instruct"
-DEFAULT_DATA_FILE = "data/shiro_persona_sft/shiro_persona_blend.jsonl"
 
 
 UPLOAD_FILES = [
@@ -25,8 +24,7 @@ UPLOAD_FILES = [
     "resources/qwen3_omni_training/README.zh-CN.md",
     "server/requirements-a800.txt",
     "role_chat_service.py",
-    DEFAULT_DATA_FILE,
-    "data/shiro_persona_sft/shiro_persona_blend.report.json",
+    "session_paths.py",
 ]
 
 
@@ -133,7 +131,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--config", default=str(DEFAULT_CONFIG))
     parser.add_argument("--remote-root", default=DEFAULT_REMOTE_ROOT)
     parser.add_argument("--model-path", default=DEFAULT_MODEL_PATH)
-    parser.add_argument("--data-file", default=DEFAULT_DATA_FILE)
+    parser.add_argument("--data-file", required=True, help="Repository-relative path to the messages JSONL to upload.")
     parser.add_argument("--run-name", default="")
     parser.add_argument("--install-deps", action="store_true", default=True)
     parser.add_argument("--skip-install-deps", action="store_true")
@@ -154,10 +152,14 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> int:
     args = build_parser().parse_args()
+    data_path = (ROOT / args.data_file).resolve()
+    if not data_path.is_relative_to(ROOT) or not data_path.is_file():
+        raise ValueError("--data-file must identify an existing file inside the repository")
+    args.data_file = data_path.relative_to(ROOT).as_posix()
     config = read_config(Path(args.config))
-    run_name = args.run_name or datetime.now().strftime("omni-shiro-persona-%Y%m%d-%H%M%S")
-    run_dir = f"{args.remote_root.rstrip('/')}/training_runs/qwen3_omni_shiro_persona/{run_name}"
-    latest_link = f"{args.remote_root.rstrip('/')}/training_runs/qwen3_omni_shiro_persona/latest"
+    run_name = args.run_name or datetime.now().strftime("omni-persona-%Y%m%d-%H%M%S")
+    run_dir = f"{args.remote_root.rstrip('/')}/training_runs/qwen3_omni_persona/{run_name}"
+    latest_link = f"{args.remote_root.rstrip('/')}/training_runs/qwen3_omni_persona/latest"
 
     print(f"[RoleWeaver A800 Training] Connecting {config.get('ssh_user') or 'root'}@{config['ssh_host']}:{config['ssh_port']}")
     client = paramiko.SSHClient()
@@ -175,7 +177,7 @@ def main() -> int:
     try:
         sftp = client.open_sftp()
         try:
-            for local_rel in UPLOAD_FILES:
+            for local_rel in [*UPLOAD_FILES, args.data_file]:
                 upload_file(client, sftp, local_rel, args.remote_root)
             run_script = f"{run_dir}/run_train.sh"
             write_remote_text(client, sftp, run_script, build_train_script(args, run_dir))

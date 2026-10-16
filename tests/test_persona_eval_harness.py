@@ -42,6 +42,13 @@ class PersonaEvalHarnessTestCase(unittest.TestCase):
 
         self.assertTrue(failures)
 
+    def test_empty_responses_fail_even_without_positive_requirements(self):
+        case = {"expect": {"forbidden_substrings": ["generic assistant"]}}
+
+        for text in ("", " \n\t"):
+            with self.subTest(text=text):
+                self.assertIn("empty response", evaluate_response(case, text))
+
     def test_label_rules_fail_identity_regression(self):
         case = {
             "expect": {

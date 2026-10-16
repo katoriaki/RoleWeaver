@@ -6,7 +6,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from resources.shiro_persona_sft.extract_plastic_memories_isla import build_dataset
+from resources.persona_sft.extract_plastic_memories_isla import build_dataset
 
 
 class PlasticMemoriesIslaExtractorTests(unittest.TestCase):
@@ -40,7 +40,7 @@ class PlasticMemoriesIslaExtractorTests(unittest.TestCase):
             self.root,
             output,
             report,
-            identity="白",
+            identity="RoleAgent",
             context_turns=2,
             max_records=100,
             keep_fact_rows=False,
@@ -49,6 +49,7 @@ class PlasticMemoriesIslaExtractorTests(unittest.TestCase):
         self.assertEqual(result["records"], 1)
         self.assertEqual(len(rows), 1)
         self.assertIn("有点在意", rows[0]["messages"][1]["content"])
+        self.assertIn("RoleAgent", rows[0]["messages"][0]["content"])
         self.assertNotIn("艾拉", rows[0]["messages"][0]["content"])
         self.assertEqual(result["skipped"]["source_fact"], 1)
 

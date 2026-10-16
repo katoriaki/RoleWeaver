@@ -40,13 +40,11 @@ $files = @(
     "anchor_runtime.py",
     "background_scheduler.py",
     "learning_runtime.py",
-    "shiro_bridge.py",
+    "session_paths.py",
     "tool_runtime.py",
     "README.md",
     "README.zh-CN.md",
-    "LICENSE",
-    "configs\shiro_a800_omni.config.example.csv",
-    "docs\SHIRO_A800_OMNI.zh-CN.md"
+    "LICENSE"
 )
 
 foreach ($file in $files) {
@@ -57,8 +55,7 @@ $dirs = @(
     "server",
     "web",
     "docs",
-    "skillcreater\characters\Shiro",
-    "shiro\src"
+    "resources\qwen3_omni_training"
 )
 
 foreach ($dir in $dirs) {

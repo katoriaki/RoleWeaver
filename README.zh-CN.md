@@ -6,6 +6,8 @@ RoleWeaver 可以把一个底模、一个可选 LoRA adapter、一个可选角�
 
 ## 最新更新
 
+研究状态：RoleWeaver目前是实验原型。CPU smoke/回归测试不能证明人格稳定性提升，也不是论文实验复现。已核查能力、待验证问题、记忆范围升级事项与离线测试方法见[研究就绪性审阅](docs/RESEARCH_READINESS_REVIEW.zh-CN.md)。
+
 2026-04-29：
 
 - 新增 Vue 一站式控制台，聊天、设置、记忆、训练、LINE/TTS/公网、评测和流程不再挤在一个“更多”按钮里。
@@ -14,8 +16,6 @@ RoleWeaver 可以把一个底模、一个可选 LoRA adapter、一个可选角�
 - 新增 Persona Anchor Replay：从官方剧情脚本抽取短人格锚点，按 planning 时间块和用户输入选择一个锚点注入 prompt，降低长对话人格退行。
 - 新增单卡常驻后台调度层：planning、记忆快照、释放非活跃模型等轻任务可在空闲窗口运行；需要 LLM 的后台记忆整理默认关闭，必须用户显式允许。
 - 新增受控工具层：`/tools`、`/tools/run`、`/tools/actions` 统一暴露时间、planning、记忆、后台任务、LINE/Tunnel/训练状态等白名单工具，并记录调用日志。
-- 新增 Shiro Bridge：可选读取独立 `shiro/` 项目的 cognitive context，并在聊天后回写 stimulus，前端新增“白”状态页。
-- Shiro M6.3 第一版支持工具意图：PDF 阅读意图和上网搜索解法意图；RoleWeaver 工具层新增 `document.pdf_read`。
 - 每个模型-LoRA-Skill 的 memory scope 会单独保存 `planning/weekly_schedule.json`，每周首次访问自动生成，也可以手动重生成。
 - 新增 LINE Bot 设置、启动/停止和 Cloudflare 临时公网地址生成接口。
 - 更新秦谷美铃 `persona_kernel.json`，补上新范式下的人格自主性、记忆边界、媒介适配和 planning-state 保护。

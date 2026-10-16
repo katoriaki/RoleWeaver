@@ -13,21 +13,16 @@ from typing import Dict, List, Optional
 os.environ.setdefault("PYTHONUTF8", "1")
 os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
 
-from memory_runtime import MemoryRuntime, memory_lifecycle_view, now_ts
+from memory_runtime import MemoryRuntime, memory_lifecycle_view, now_ts, save_json_file
 from persona_kernel_scorer import PersonaKernelScorer
 from planning_runtime import ensure_weekly_schedule, render_planning_context
 from anchor_runtime import load_anchor_bank, render_anchor_context, select_anchor
-from shiro_bridge import ShiroBridge
+from session_paths import sanitize_session_id
 from role_config import (
     DEFAULT_IDLE_CONSOLIDATION_SECONDS,
     RoleConfig,
     normalize_idle_consolidation_seconds,
 )
-
-
-def sanitize_session_id(session_id: str) -> str:
-    cleaned = re.sub(r"[^a-zA-Z0-9_.-]+", "_", (session_id or "default").strip())
-    return cleaned[:100] or "default"
 
 
 def _identity_component(value: Optional[str], fallback: str) -> str:
@@ -53,9 +48,11 @@ def _read_json_file(path: Path, default):
 
 
 def _write_json_file(path: Path, data):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+    save_json_file(str(path), data)
+
+
+class LegacySessionMigrationError(ValueError):
+    """Old memory storage exists and must be reviewed before explicit migration."""
 
 
 class RoleChatService:
@@ -100,11 +97,6 @@ class RoleChatService:
         self._persona_scorer = PersonaKernelScorer.from_skill_file(self.config.skill_file)
         self.last_persona_score: Optional[Dict] = None
         self._anchor_bank = load_anchor_bank(self.config.skill_file)
-        self._shiro_bridge = ShiroBridge(
-            enabled=self.config.shiro_enabled,
-            root=self.config.shiro_root,
-            identity=self.config.shiro_identity,
-        )
         self.idle_consolidation_seconds = normalize_idle_consolidation_seconds(
             self.config.idle_consolidation_seconds
         )
@@ -145,6 +137,11 @@ class RoleChatService:
             "lora_path": self.config.lora_path or "",
             "skill_file": self.config.skill_file or "",
             "skill_text": self.config.skill_text or "",
+            "role_name": self.config.role_name,
+            "user_subject": self.config.user_subject,
+            "system_prompt": self.config.system_prompt,
+            "normal_system_prompt": self.config.normal_system_prompt,
+            "character_knowledge_seed": self.config.character_knowledge_seed,
         }
         identity_text = json.dumps(identity, ensure_ascii=False, sort_keys=True)
         base_name = _identity_component(self.config.base_model_path, "base-model")
@@ -153,6 +150,18 @@ class RoleChatService:
         folder_name = f"{base_name}__{lora_name}__{skill_name}__{_short_hash(identity_text)}"
         return self.memory_root / sanitize_session_id(folder_name)
 
+    def _legacy_config_memory_dir(self) -> Path:
+        """Locate pre-isolation-fix storage for an explicit migration warning."""
+        identity = {key: getattr(self.config, key) or "" for key in
+                    ("base_model_path", "lora_path", "skill_file", "skill_text")}
+        digest = _short_hash(json.dumps(identity, ensure_ascii=False, sort_keys=True))
+        base = _identity_component(self.config.base_model_path, "base-model")
+        lora = _identity_component(self.config.lora_path, "base-only")
+        skill = _identity_component(self.config.skill_file, "inline-skill" if self.config.skill_text else "no-skill")
+        # Reproduce the old name exactly, including its lossy truncation.
+        folder = re.sub(r"[^a-zA-Z0-9_.-]+", "_", f"{base}__{lora}__{skill}__{digest}")[:100]
+        return self.memory_root / folder
+
     @staticmethod
     def new_session_id() -> str:
         return datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -160,6 +169,10 @@ class RoleChatService:
     def _settings_snapshot(self, extra_settings: Optional[Dict] = None) -> Dict:
         snapshot = {
             "role_name": self.config.role_name,
+            "user_subject": self.config.user_subject,
+            "system_prompt": self.config.system_prompt,
+            "normal_system_prompt": self.config.normal_system_prompt,
+            "character_knowledge_seed": self.config.character_knowledge_seed,
             "base_model_path": self.config.base_model_path or "",
             "lora_path": self.config.lora_path or "",
             "skill_file": self.config.skill_file or "",
@@ -176,13 +189,17 @@ class RoleChatService:
             "background_window_end": self.config.background_window_end,
             "background_max_minutes": self.config.background_max_minutes,
             "preload_model_on_startup": self.config.preload_model_on_startup,
-            "shiro_enabled": self.config.shiro_enabled,
-            "shiro_root": self.config.shiro_root,
-            "shiro_identity": self.config.shiro_identity,
             "session_root": str(self.memory_root),
         }
         if extra_settings:
             snapshot.update({k: v for k, v in extra_settings.items() if v is not None})
+        # UI settings can contain only the inline skill fragment. Persist the
+        # effective persona used by this service, so reopening cannot change it.
+        for key in ("role_name", "user_subject", "system_prompt", "normal_system_prompt",
+                    "character_knowledge_seed", "skill_text"):
+            snapshot[key] = getattr(self.config, key)
+        snapshot["memory_scope_version"] = 2
+        snapshot["skill_text_format"] = "expanded_v1"
         return snapshot
 
     def create_session(self, session_id: Optional[str] = None, extra_settings: Optional[Dict] = None) -> Dict:
@@ -190,7 +207,8 @@ class RoleChatService:
         original_session_id = session_id
         counter = 2
         while (self.session_root / session_id).exists():
-            session_id = sanitize_session_id(f"{original_session_id}-{counter:02d}")
+            suffix = f"-{counter:02d}"
+            session_id = f"{original_session_id[:100 - len(suffix)]}{suffix}"
             counter += 1
         path = self._session_dir(session_id)
         created_ts = now_ts()
@@ -432,6 +450,19 @@ class RoleChatService:
 
     def _session_dir(self, session_id: str) -> Path:
         path = self.session_root / sanitize_session_id(session_id)
+        if path.resolve().parent != self.session_root.resolve():
+            raise ValueError("session directory must be inside its configured memory scope")
+        if not path.exists():
+            legacy_scope = self._legacy_config_memory_dir()
+            legacy_id = re.sub(r"[^a-zA-Z0-9_.-]+", "_", (session_id or "default").strip())[:100] or "default"
+            legacy_path = legacy_scope / legacy_id
+            if legacy_path.resolve().parent == legacy_scope.resolve() and legacy_path.is_dir():
+                raise LegacySessionMigrationError(
+                    f"Legacy session requires explicit migration: {legacy_path}. "
+                    f"Review its persona/settings before migrating to {path}; refresh the settings snapshots "
+                    "and keep the original backup outside the session root to avoid duplicate session IDs. "
+                    "No legacy memories were loaded or overwritten."
+                )
         path.mkdir(parents=True, exist_ok=True)
         (path / "short_term").mkdir(exist_ok=True)
         (path / "mid_term").mkdir(exist_ok=True)
@@ -526,11 +557,12 @@ class RoleChatService:
         return messages[-limit:]
 
     def _runtime_for_session(self, session_id: str) -> MemoryRuntime:
+        requested_session_id = session_id
         session_id = sanitize_session_id(session_id)
         if session_id in self._runtime_cache:
             return self._runtime_cache[session_id]
 
-        base = self._session_dir(session_id)
+        base = self._session_dir(requested_session_id)
         runtime = MemoryRuntime(
             memory_file=str(base / "long_term" / "memories_v2.json"),
             index_file=str(base / "long_term" / "memories_v2.faiss"),
@@ -689,28 +721,6 @@ class RoleChatService:
         runtime.episodic.delete_memory(memory_id)
         return len(runtime.episodic.list_memories()) < before
 
-    def shiro_status(self, session_id: str = "default") -> Dict:
-        return self._shiro_bridge.status(session_id)
-
-    def observe_shiro_stimulus(
-        self,
-        session_id: str,
-        text: str,
-        *,
-        source: str = "manual",
-        metadata: Optional[Dict] = None,
-    ) -> Dict:
-        return self._shiro_bridge.observe_text(session_id, text, source=source, metadata=metadata or {})
-
-    def infer_shiro_tool_intentions(
-        self,
-        session_id: str,
-        text: str,
-        *,
-        metadata: Optional[Dict] = None,
-    ) -> Dict:
-        return self._shiro_bridge.infer_tool_intentions(session_id, text, metadata=metadata or {})
-
     def _maybe_consolidate_after_idle(self, session_id: str, meta: Dict):
         last_activity_ts = meta.get("last_activity_ts")
         if not last_activity_ts or self.idle_consolidation_seconds <= 0:
@@ -753,13 +763,8 @@ class RoleChatService:
         memory_context = runtime.build_context(user_text).render()
         planning_context = ""
         anchor_context = ""
-        shiro_context = ""
         schedule = None
         if role_mode:
-            try:
-                shiro_context = self._shiro_bridge.thought_context(session_id)
-            except Exception as exc:
-                shiro_context = f"【Shiro Cognitive Context】\n- unavailable: {exc}"
             try:
                 schedule = ensure_weekly_schedule(
                     self._session_dir(session_id).parent,
@@ -783,8 +788,6 @@ class RoleChatService:
         final_system = base_system
         if memory_context:
             final_system += "\n\n" + memory_context
-        if shiro_context:
-            final_system += "\n\n" + shiro_context
         if planning_context:
             final_system += "\n\n" + planning_context
         if anchor_context:
@@ -981,10 +984,17 @@ class RoleChatService:
         max_new_tokens: int = 96,
     ) -> List[Dict]:
         context_limit = self._context_window_tokens()
-        generation_reserve = max(int(max_new_tokens or 0), 1) + 256
+        output_tokens = int(max_new_tokens or 0)
+        if output_tokens <= 0:
+            raise ValueError("max_new_tokens must be positive")
+        hard_limit = context_limit - output_tokens - 32
+        if hard_limit <= 0:
+            raise RuntimeError("max_new_tokens leaves no room for a prompt in the model context window")
+        generation_reserve = output_tokens + 256
         target_prompt_tokens = int(context_limit * 0.90) - generation_reserve
         if target_prompt_tokens < 128:
-            target_prompt_tokens = max(64, int(context_limit * 0.60))
+            target_prompt_tokens = max(1, int(context_limit * 0.60))
+        target_prompt_tokens = min(target_prompt_tokens, hard_limit)
 
         messages = self._build_messages(
             user_text=user_text,
@@ -1026,7 +1036,6 @@ class RoleChatService:
             if prompt_tokens <= target_prompt_tokens:
                 return messages
 
-        hard_limit = max(512, context_limit - max(int(max_new_tokens or 0), 1) - 32)
         if prompt_tokens > hard_limit:
             raise RuntimeError(
                 "当前 prompt 已超过模型上下文窗口，自动压缩历史后仍无法安全生成。\n"
@@ -1065,7 +1074,7 @@ class RoleChatService:
             inputs = self._omni_messages_to_inputs(messages)
         else:
             text = self._messages_to_prompt_text(messages)
-            inputs = self._tokenizer(text, return_tensors="pt").to(self._model.device)
+            inputs = self._tokenizer(text, return_tensors="pt", add_special_tokens=False).to(self._model.device)
 
         with self._generate_lock:
             with self._torch.no_grad():
@@ -1100,7 +1109,6 @@ class RoleChatService:
             surface="web",
         )
         runtime.record_turn(user_text, result)
-        self._shiro_bridge.observe_chat_turn(session_id, user_text, result, surface="web")
         self._append_transcript_turn(
             session_id,
             user_text,
@@ -1188,7 +1196,6 @@ class RoleChatService:
             surface="image",
         )
         runtime.record_turn(display_user_text, result)
-        self._shiro_bridge.observe_chat_turn(session_id, display_user_text, result, surface="image")
         self._append_transcript_turn(
             session_id,
             display_user_text,

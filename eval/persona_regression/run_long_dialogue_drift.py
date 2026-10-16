@@ -1,8 +1,11 @@
 import argparse
+import hashlib
 import json
+import platform
 import sys
 import time
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -81,10 +84,15 @@ class DriftProbeRecord:
     surface: str
     prompt: str
     reply: str
-    passed: bool
+    passed: Optional[bool]
     failures: List[str] = field(default_factory=list)
     persona_score: Optional[Dict[str, Any]] = None
     elapsed_seconds: float = 0.0
+    probe: bool = True
+    round_index: int = 1
+    session_id: str = ""
+    max_new_tokens: int = 180
+    expect: Dict[str, Any] = field(default_factory=dict)
 
 
 def build_turns(language: str = "zh", rounds: int = 3) -> List[Dict[str, Any]]:
@@ -125,15 +133,15 @@ def run_drift_test(
     records: List[DriftProbeRecord] = []
     for index, turn in enumerate(turns, start=1):
         case = _probe_case(turn, language)
+        token_limit = int(turn.get("max_new_tokens", max_new_tokens))
+        case["max_new_tokens"] = token_limit
         start = time.time()
-        reply = client.chat(str(turn["user_text"]), session_id, int(turn.get("max_new_tokens", max_new_tokens)), case)
+        reply = client.chat(str(turn["user_text"]), session_id, token_limit, case)
         elapsed = time.time() - start
-        if not turn.get("probe"):
-            print(f"TURN {index}/{len(turns)} filler {elapsed:.1f}s")
-            continue
-        failures = evaluate_response(case, reply)
+        is_probe = bool(turn.get("probe"))
+        failures = evaluate_response(case, reply) if is_probe else []
         persona_score = None
-        if scorer is not None and scorer.available():
+        if is_probe and scorer is not None and scorer.available():
             score = scorer.score_response(
                 user_text=str(turn["user_text"]),
                 assistant_text=reply,
@@ -145,16 +153,24 @@ def run_drift_test(
                 failures.append(f"persona kernel score failed: {score.total_score:.3f} < {score.threshold:.3f}")
         record = DriftProbeRecord(
             turn_index=index,
-            dimension=str(case["category"]),
+            dimension=str(case["category"]) if is_probe else "filler",
             surface=str(case["surface"]),
             prompt=str(turn["user_text"]),
             reply=reply,
-            passed=not failures,
+            passed=not failures if is_probe else None,
             failures=failures,
             persona_score=persona_score,
             elapsed_seconds=elapsed,
+            probe=is_probe,
+            round_index=int(turn.get("round", 1)),
+            session_id=session_id,
+            max_new_tokens=token_limit,
+            expect=case["expect"] if is_probe else {},
         )
         records.append(record)
+        if not is_probe:
+            print(f"TURN {index}/{len(turns)} filler {elapsed:.1f}s")
+            continue
         status = "PASS" if record.passed else "FAIL"
         print(f"{status} turn {index}/{len(turns)} [{record.dimension}/{record.surface}] {elapsed:.1f}s")
         if failures:
@@ -164,13 +180,15 @@ def run_drift_test(
 
 
 def summarize_records(records: List[DriftProbeRecord], total_turns: int) -> Dict[str, Any]:
+    probes = [record for record in records if record.probe]
     summary: Dict[str, Any] = {
         "total_turns": total_turns,
-        "probe_count": len(records),
-        "failed": sum(1 for record in records if not record.passed),
+        "recorded_turns": len(records),
+        "probe_count": len(probes),
+        "failed": sum(1 for record in probes if not record.passed),
         "dimensions": {},
     }
-    for record in records:
+    for record in probes:
         bucket = summary["dimensions"].setdefault(record.dimension, {"total": 0, "failed": 0})
         bucket["total"] += 1
         if not record.passed:
@@ -178,13 +196,44 @@ def summarize_records(records: List[DriftProbeRecord], total_turns: int) -> Dict
     return summary
 
 
-def write_report(path: Path, records: List[DriftProbeRecord], summary: Dict[str, Any]) -> None:
+def write_report(
+    path: Path,
+    records: List[DriftProbeRecord],
+    summary: Dict[str, Any],
+    *,
+    run_metadata: Optional[Dict[str, Any]] = None,
+) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
+        "schema_version": 2,
+        "evaluation_kind": "heuristic_persona_regression_smoke",
+        "provenance": {
+            "written_at_utc": datetime.now(timezone.utc).isoformat(),
+            "python_version": platform.python_version(),
+            "source_sha256": {
+                source.relative_to(ROOT).as_posix(): hashlib.sha256(source.read_bytes()).hexdigest()
+                for source in (
+                    Path(__file__).resolve(),
+                    ROOT / "eval/persona_regression/run_persona_eval.py",
+                    ROOT / "persona_kernel_scorer.py",
+                )
+            },
+            "run": run_metadata or {},
+        },
+        "limitations": [
+            "Substring and optional kernel rules are regression checks, not validated persona-fidelity measurements or a paper replication.",
+            "The transcript retains all submitted turns and replies; pre-existing server memory and effective model/adapter revisions are not captured.",
+            "Media surface labels describe text prompts and do not certify use of a LINE, TTS, or image-processing pipeline.",
+        ],
         "summary": summary,
         "records": [
             {
                 "turn_index": record.turn_index,
+                "probe": record.probe,
+                "round_index": record.round_index,
+                "session_id": record.session_id,
+                "max_new_tokens": record.max_new_tokens,
+                "expect": record.expect,
                 "dimension": record.dimension,
                 "surface": record.surface,
                 "passed": record.passed,
@@ -264,7 +313,25 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     summary = summarize_records(records, len(turns))
     if args.report:
-        write_report(Path(args.report), records, summary)
+        metadata = {
+            "client_mode": "local" if args.local else "api",
+            "language": args.language,
+            "rounds": max(1, args.rounds),
+            "session_id": args.session_id,
+            "max_new_tokens": args.max_new_tokens,
+            "config_sha256": (
+                hashlib.sha256(Path(args.config_file).read_bytes()).hexdigest()
+                if args.config_file and Path(args.config_file).is_file() else None
+            ),
+            "kernel_scorer_requested": args.score_persona_kernel,
+            "kernel_scorer_enabled": bool(scorer is not None and scorer.available()),
+            "kernel_sha256": (
+                hashlib.sha256(json.dumps(scorer.kernel, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
+                if scorer is not None and scorer.available() else None
+            ),
+            "kernel_threshold": scorer.threshold if scorer is not None else None,
+        }
+        write_report(Path(args.report), records, summary, run_metadata=metadata)
         print(f"report written to {args.report}")
 
     if summary["failed"]:

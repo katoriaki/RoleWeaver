@@ -1,6 +1,6 @@
 # Persona Anchor Forge
 
-Persona Anchor Forge 用于生成白的人格锚点候选，而不是直接改写人格核心。
+Persona Anchor Forge 用于生成当前角色的人格锚点候选，而不是直接改写人格核心。
 
 设计动机来自 EACL 2026 的 `Persistent Personas? Role-Playing, Instruction Following, and Safety in Extended Interactions`：长对话中 persona fidelity 会退化，尤其是目标导向任务会把模型拉向普通助手；persona-directed dialogue 能更好地维持角色特征，但也不能过量使用，否则会牺牲任务能力。
 
@@ -9,7 +9,7 @@ Persona Anchor Forge 用于生成白的人格锚点候选，而不是直接改�
 1. 读取当前 session 的随机周计划。
 2. 判断当前场景，例如上课、吃饭、训练、休息、关系时间。
 3. 生成 1-6 轮短的 persona-directed dialogue。
-4. 让白自然回答，不暴露开发者模式和内部机制。
+4. 让当前角色自然回答，不暴露开发者模式和内部机制。
 5. 从回答中抽取候选锚点，写入：
 
 ```text
@@ -23,7 +23,7 @@ data/persona_anchors/<session_id>/candidate_anchors.jsonl
 查看候选：
 
 ```http
-GET /persona-anchors/status?session_id=shiro-study
+GET /persona-anchors/status?session_id=role-study
 ```
 
 运行一次短对话：
@@ -33,7 +33,7 @@ POST /persona-anchors/run
 Content-Type: application/json
 
 {
-  "session_id": "shiro-study",
+  "session_id": "role-study",
   "turns": 3,
   "max_new_tokens": 160,
   "mentor_notes": [
@@ -50,15 +50,15 @@ POST /persona-anchors/promote
 Content-Type: application/json
 
 {
-  "session_id": "shiro-study",
-  "candidate_id": "shiro-pdialogue-xxxx"
+  "session_id": "role-study",
+  "candidate_id": "role-pdialogue-xxxx"
 }
 ```
 
 正式 anchor 会追加到：
 
 ```text
-skillcreater/characters/Shiro/skill/anchors/anchors.jsonl
+<skill-directory>/anchors/anchors.jsonl
 ```
 
 ## 与持续 LoRA 的关系

@@ -6,12 +6,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from resources.shiro_persona_sft.build_shiro_blend_sft import build_dataset
+from resources.persona_sft.build_persona_blend_sft import build_dataset
 
 
-class ShiroPersonaSftBuilderTests(unittest.TestCase):
+class PersonaSftBuilderTests(unittest.TestCase):
     def setUp(self):
-        self.root = Path(".codex_tmp/test_shiro_persona_sft")
+        self.root = Path(".codex_tmp/test_persona_sft")
         if self.root.exists():
             shutil.rmtree(self.root)
         (self.root / "raw/demo").mkdir(parents=True, exist_ok=True)
@@ -20,7 +20,7 @@ class ShiroPersonaSftBuilderTests(unittest.TestCase):
         self.manifest.write_text(
             "source_id,character_name,aliases,source_work,trait_tags,blend_weight,risk_level,allowed_use,forbidden_terms,raw_glob,notes\n"
             "demo,DemoName,DemoAlias,DemoWork,shy;ai,1.0,high,trait_pattern_only,ForbiddenWorld,raw/demo/*.jsonl,test\n"
-            "core_self_replay,白,Shiro,Original,core,1.0,low,core_replay,,raw/core_self_replay/*.jsonl,core\n",
+            "core_self_replay,RoleAgent,RoleAgent,Original,core,1.0,low,core_replay,,raw/core_self_replay/*.jsonl,core\n",
             encoding="utf-8",
         )
         (self.root / "raw/demo/source.jsonl").write_text(
@@ -59,7 +59,7 @@ class ShiroPersonaSftBuilderTests(unittest.TestCase):
             output,
             report,
             root=self.root,
-            identity="白",
+            identity="RoleAgent",
             max_per_source=10,
             strict=True,
             seed=1,
@@ -67,7 +67,8 @@ class ShiroPersonaSftBuilderTests(unittest.TestCase):
         self.assertTrue(output.exists())
         rows = [json.loads(line) for line in output.read_text(encoding="utf-8").splitlines() if line.strip()]
         assistant_text = "\n".join(row["messages"][1]["content"] for row in rows)
-        self.assertIn("白有点紧张", assistant_text)
+        self.assertIn("RoleAgent有点紧张", assistant_text)
+        self.assertTrue(any("请保持RoleAgent" in row["messages"][0]["content"] for row in rows))
         self.assertNotIn("DemoName", assistant_text)
         self.assertNotIn("ForbiddenWorld 是我的家", assistant_text)
         self.assertGreaterEqual(result["total_records"], 2)

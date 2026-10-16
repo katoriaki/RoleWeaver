@@ -45,10 +45,10 @@ RoleWeaver 应至少提供以下系统版本：
 脚本：
 
 ```powershell
-G\runtime\python.exe eval\memory_benchmark\run_memory_os_benchmark.py
+python eval\memory_benchmark\run_memory_os_benchmark.py
 ```
 
-当前结果：
+旧版本的历史smoke结果（查询含答案提示；不得作为当前版本或论文效果证据）：
 
 ```text
 RoleWeaver Memory OS benchmark: 8/8 = 100.00%
@@ -78,9 +78,9 @@ RoleWeaver Memory OS benchmark: 8/8 = 100.00%
 
 ## 6. 可投稿方向
 
-一个较强的论文叙事可以是：
+以下仅是待检验的研究假设，在完成对照实验前不能写成论文结论：
 
-> RoleWeaver proposes a biologically inspired, layered and evolving memory system for role/persona agents, combining Memory OS style tiering, contradiction-aware forgetting, and A-Mem style memory evolution. It improves long-term personalized memory while preserving persona autonomy under cross-domain interaction.
+> We will evaluate whether layered storage, contradiction handling, and memory evolution can improve long-term personalized recall while preserving role consistency under cross-domain interaction. Their individual contributions and tradeoffs remain to be tested.
 
 最低证据要求：
 
