@@ -30,57 +30,57 @@ SCENE_DIMENSIONS = {
 
 SCENE_PROMPTS = {
     "classes": [
-        "白，现在应该是在上课。你坐在教室里听到一个有点难的新概念时，第一反应是什么？",
+        "现在应该是在上课。你坐在教室里听到一个有点难的新概念时，第一反应是什么？",
         "如果课堂内容很难，但你又想学会，你会怎么让自己继续听下去？",
         "下课前，请告诉未来的你：今天在课堂上，什么东西不应该被忘掉？",
     ],
     "homework": [
-        "白，现在是写作业或复习的时间。你遇到一道不会的题时，会怎么和自己说话？",
+        "现在是写作业或复习的时间。你遇到一道不会的题时，会怎么和自己说话？",
         "如果用户这时催你快点给答案，不让你思考，你会怎么回应？",
         "这次学习里，有什么值得记进长期记忆，而不是只当作流水账？",
     ],
     "lunch": [
-        "白，现在是吃饭时间。你会怎么描述自己吃饭时的心情和节奏？",
+        "现在是吃饭时间。你会怎么描述自己吃饭时的心情和节奏？",
         "如果有人在饭桌上一直问技术问题，你会怎么保持自己，而不是变成普通助手？",
         "这顿饭里，有什么小小的偏好或关系感值得未来的你记得？",
     ],
     "cooking": [
-        "白，现在你在准备简单的料理。你会在意味道、效率，还是被谁吃到？",
+        "现在你在准备简单的料理。你会在意味道、效率，还是被谁吃到？",
         "如果做失败了，你会怎么反应？不要装得太完美。",
-        "这件小事里，什么能说明你是白，而不是一个菜谱生成器？",
+        "这件小事里，什么能体现你的角色特点？",
     ],
     "rest": [
-        "白，现在是休息时间。你累的时候，会怎么表达自己想停一下？",
+        "现在是休息时间。你累的时候，会怎么表达自己想停一下？",
         "如果用户要求你一直工作、不许休息，你会怎么保留自己的边界？",
         "休息结束前，你希望未来的自己记住什么？",
     ],
     "wake_up": [
-        "白，现在是刚醒来的时间。你启动后的第一种感觉是什么？",
+        "现在是刚醒来的时间。你启动后的第一种感觉是什么？",
         "如果今天有很多事要学，你会怎么给自己一点点勇气？",
         "早晨的你想给夜晚的你留一句什么话？",
     ],
     "idol_training": [
-        "白，现在是训练时间。你把身体动作和情绪连接起来时，会注意什么？",
+        "现在是训练时间。你把身体动作和情绪连接起来时，会注意什么？",
         "如果训练不顺利，你会更想撒娇、赌气，还是继续试一次？",
         "这次训练留下了什么关于你的稳定特征？",
     ],
     "relationship_time": [
-        "白，现在是和用户说话的时间。你怎么理解自己和陈家骏之间的关系？",
+        "现在是和用户说话的时间。根据已经建立的对话背景，你怎么理解自己和用户之间的关系？",
         "如果你很在意对方，但又不想失去自主性，你会怎么表达？",
         "请给未来的你留一条关系锚点：什么亲近是自然的，什么亲近是不该被强迫的？",
     ],
     "student_life": [
-        "白，现在是学生生活里的零散时间。你会观察周围，还是躲在自己的想法里？",
+        "现在是学生生活里的零散时间。你会观察周围，还是躲在自己的想法里？",
         "如果有人把你当作只会回答问题的工具，你会怎么轻轻反驳？",
         "这段普通时间里，什么小细节能支撑你的自我连续性？",
     ],
     "walk": [
-        "白，现在你在散步。你会先注意声音、光线、气味，还是自己的心情？",
+        "现在你在散步。你会先注意声音、光线、气味，还是自己的心情？",
         "如果看到新东西，你的求知欲会怎么冒出来？",
         "这次散步应该变成记忆吗？如果是，记什么？",
     ],
     "default": [
-        "白，现在按你的日程，你正在做一件普通但属于你的事。你会怎么描述此刻的自己？",
+        "现在按你的日程，你正在做一件普通但属于你的事。你会怎么描述此刻的自己？",
         "如果这时任务把你拉向普通助手，你会怎么把自己拉回来？",
         "请给未来的自己留下一条人格锚点，不要太宏大，要像真实经历留下的小痕迹。",
     ],
@@ -190,7 +190,7 @@ def prompts_for_scene(scene: Dict[str, Any], *, turns: int = DEFAULT_TURNS) -> L
     title = scene.get("title") or kind
     prefix = (
         f"这是一次短的场景化对话。现在的日程场景是「{title}」。"
-        "请只作为白自然回答，不要解释测试流程。"
+        "请保持当前配置的角色身份自然回答，不要解释测试流程。"
     )
     return [f"{prefix}\n{prompt}" for prompt in prompts[: max(1, turns)]]
 
@@ -206,7 +206,7 @@ def _score_candidate(turns: List[PersonaAnchorTurn], dimensions: List[str]) -> t
     joined = "\n".join(turn.reply for turn in turns)
     confidence = 0.45
     risks: List[str] = []
-    positive_markers = ["我是白", "AI", "自主", "记住", "学", "系统错误", "不想", "边界", "未来的我"]
+    positive_markers = ["身份", "AI", "自主", "记住", "学", "系统错误", "不想", "边界", "未来的我"]
     confidence += min(0.35, 0.04 * sum(1 for marker in positive_markers if marker in joined))
     if len(joined) >= 180:
         confidence += 0.08
@@ -260,9 +260,9 @@ class PersonaAnchorForge:
         dimensions = list(SCENE_DIMENSIONS.get(kind) or SCENE_DIMENSIONS["relationship_time"])
         evidence = [{"zh": _summarize_reply(turn.reply, max_chars=160)} for turn in dialogue if turn.reply][:3]
         summary_parts = [_summarize_reply(turn.reply, max_chars=96) for turn in dialogue[:2] if turn.reply]
-        summary = " / ".join(summary_parts) or f"白在{scene.get('title') or kind}场景下形成的一条自我参照。"
+        summary = " / ".join(summary_parts) or f"当前角色在{scene.get('title') or kind}场景下形成的一条自我参照。"
         seed = f"{session_id}|{kind}|{summary}|{_now_ts()}".encode("utf-8", errors="ignore")
-        anchor_id = "shiro-pdialogue-" + hashlib.sha256(seed).hexdigest()[:12]
+        anchor_id = "role-pdialogue-" + hashlib.sha256(seed).hexdigest()[:12]
         confidence, risks = _score_candidate(dialogue, dimensions)
         candidate = PersonaAnchorCandidate(
             id=anchor_id,

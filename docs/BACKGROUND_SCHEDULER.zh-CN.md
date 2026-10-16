@@ -101,7 +101,7 @@ Vue 控制台新增“后台任务”页面：
 Runtime 设置页新增后台参数，所有参数都写入 `roleweaver.config.csv`，不需要用户改代码。
 ## Autonomous Learning / A-Mem Growth Loop
 
-The `autonomous_learning` job adds the idle learning loop used by Shiro.
+The `autonomous_learning` job adds a configurable idle learning loop.
 
 When the scheduler has been idle for `background_idle_seconds`, the current time is inside the configured background window, and `background_llm_enabled=true`, RoleWeaver can run:
 
@@ -109,7 +109,7 @@ When the scheduler has been idle for `background_idle_seconds`, the current time
 2. current weekly schedule and anchor refresh;
 3. autonomous web search for the configured interests;
 4. model-generated study notes;
-5. Shiro stimulus write-back, so the learning step can affect emotion, memory, reflection, and future adapter candidates.
+5. study-note persistence and preparation of candidate samples for later review and adapter training.
 
 New config keys:
 

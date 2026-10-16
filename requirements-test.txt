@@ -1,0 +1,9 @@
+# CPU-only test environment used for the research-readiness review.
+# Python 3.12; no model weights, torch, transformers or GPU are required.
+fastapi==0.143.2
+httpx==0.28.1
+numpy==2.5.4
+python-dotenv==1.2.4
+requests==2.34.2
+line-bot-sdk==3.26.0
+tzdata==2026.5

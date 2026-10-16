@@ -6,6 +6,8 @@ RoleWeaver は、ベース LLM、任意の LoRA adapter、任意の role skill �
 
 ## 最新アップデート
 
+研究上の位置付け：RoleWeaver は実験用プロトタイプです。CPU上のsmoke／回帰テストは、役割の一貫性の改善や論文実験の再現を実証するものではありません。検証範囲、残る課題、記憶スコープの移行とモデル不要のテスト手順は[研究準備状況のレビュー（中国語）](docs/RESEARCH_READINESS_REVIEW.zh-CN.md)をご参照ください。
+
 2026-04-29:
 
 - Vue ベースの一体型コンソールを追加し、チャット、設定、記憶、学習、LINE/TTS/公開 URL、評価、フローを明確なページに分けました。
@@ -14,8 +16,6 @@ RoleWeaver は、ベース LLM、任意の LoRA adapter、任意の role skill �
 - Persona Anchor Replay を追加しました。`SKILL.md` の近くにある短い人格アンカーを読み込み、長対話での persona drift を抑えるための校正 context として使います。
 - 単一 GPU 常駐向けのバックグラウンド・スケジューラを追加しました。planning 更新、記憶 snapshot、非アクティブモデル解放などの軽量処理はアイドル時間に実行でき、LLM を使う処理は明示的に許可するまで無効です。
 - 制御されたツール層を追加しました。`/tools`、`/tools/run`、`/tools/actions` から時刻、planning、記憶、バックグラウンド、LINE/Tunnel、学習状態などのホワイトリスト済みツールを呼び出し、ログに残せます。
-- Shiro Bridge を追加しました。独立した `shiro/` プロジェクトから cognitive context を任意で読み込み、会話後に stimulus を書き戻し、Web コンソールに「白」状態ページを表示できます。
-- Shiro M6.3 の第一版として、PDF 読み取りと Web 検索のツール意図を追加し、RoleWeaver ツール層に `document.pdf_read` を追加しました。
 - モデル-LoRA-Skill ごとの memory scope に `planning/weekly_schedule.json` を保存し、週ごとに自動生成できます。
 - LINE Bot 設定、起動/停止、Cloudflare 一時公開 URL の API を追加しました。
 - 秦谷美鈴の `persona_kernel.json` を現行 schema に合わせて再生成しました。

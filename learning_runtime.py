@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import time
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional
 
@@ -55,7 +55,6 @@ class LearningStep:
     output: str
     quiz: List[Dict[str, str]]
     mode: str
-    shiro: Dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -140,7 +139,7 @@ class LearningRuntime:
         root: Path,
         *,
         textbook_root: Path,
-        session_id: str = "shiro-study",
+        session_id: str = "role-study",
         subject: str = "",
     ):
         self.root = Path(root) / _safe_slug(session_id)
@@ -242,7 +241,6 @@ class LearningRuntime:
         *,
         chat_text: Optional[Callable[[str, str, int], str]] = None,
         chat_image: Optional[Callable[[str, str, str, int], str]] = None,
-        observe_shiro: Optional[Callable[[str, str, Dict[str, Any]], Dict[str, Any]]] = None,
         use_model: bool = False,
         max_new_tokens: int = 384,
     ) -> LearningStep:
@@ -275,28 +273,6 @@ class LearningRuntime:
             output = self._dry_run_output(material, excerpt)
 
         quiz = self._build_quiz(material, output)
-        shiro_result: Dict[str, Any] = {}
-        if observe_shiro:
-            shiro_text = (
-                f"学习阶段 {self.state.get('phase', 1)} 完成一步。\n"
-                f"教材: {material.path}\n"
-                f"模式: {mode}\n"
-                f"学习输出摘要: {output[:600]}"
-            )
-            shiro_result = observe_shiro(
-                shiro_text,
-                "study",
-                {
-                    "material": material.to_dict(),
-                    "mode": mode,
-                    "signal_overrides": {
-                        "task_pressure": 1.0,
-                        "positive": 0.35,
-                        "uncertainty": 0.15 if "unavailable" in output.lower() else 0.0,
-                    },
-                },
-            )
-
         step = LearningStep(
             id=f"study-{_now_ts()}-{cursor}",
             timestamp=_now_ts(),
@@ -307,7 +283,6 @@ class LearningRuntime:
             output=output,
             quiz=quiz,
             mode=mode,
-            shiro=shiro_result,
         )
         _append_jsonl(self.step_log_path, step.to_dict())
         self._append_adapter_candidate(step)
@@ -327,7 +302,6 @@ class LearningRuntime:
         *,
         search_fn: Callable[[str, int], Dict[str, Any]],
         chat_text: Optional[Callable[[str, str, int], str]] = None,
-        observe_shiro: Optional[Callable[[str, str, Dict[str, Any]], Dict[str, Any]]] = None,
         use_model: bool = False,
         max_new_tokens: int = 512,
         schedule_state: Optional[Dict[str, Any]] = None,
@@ -359,33 +333,6 @@ class LearningRuntime:
             size=len(json.dumps(search, ensure_ascii=False)),
         )
         quiz = self._build_quiz(material, output)
-        shiro_result: Dict[str, Any] = {}
-        if observe_shiro:
-            shiro_result = observe_shiro(
-                (
-                    f"Autonomous study step completed.\n"
-                    f"Subject: {subject}\n"
-                    f"Query: {query}\n"
-                    f"Mode: {mode}\n"
-                    f"Study notes excerpt: {output[:700]}"
-                ),
-                "autonomous_study",
-                {
-                    "subject": subject,
-                    "query": query,
-                    "search": search,
-                    "mode": mode,
-                    "activity": activity,
-                    "schedule_state": schedule_state or {},
-                    "signal_overrides": {
-                        "curiosity": 1.0,
-                        "positive": 0.25,
-                        "task_pressure": 0.45,
-                        "uncertainty": 0.2 if search.get("error") else 0.05,
-                    },
-                },
-            )
-
         step = LearningStep(
             id=f"web-study-{_now_ts()}-{web_cursor}",
             timestamp=_now_ts(),
@@ -396,7 +343,6 @@ class LearningRuntime:
             output=output,
             quiz=quiz,
             mode=f"{mode}:{activity}",
-            shiro=shiro_result,
         )
         _append_jsonl(self.step_log_path, step.to_dict())
         self._append_adapter_candidate(step)
@@ -473,7 +419,7 @@ class LearningRuntime:
         else:
             task_policy = "This tick is professional study. Build compact notes and prepare one future exercise."
         return (
-            "You are Shiro, an autonomous AI student with strong curiosity about mathematics and computer science.\n"
+            "Continue as the configured RoleWeaver persona while studying mathematics and computer science.\n"
             "Use the search results as external references. Do not claim you fully read pages that were not fetched.\n"
             "Create observable study notes, questions, and a next action. Keep persona autonomy intact.\n\n"
             f"Learning activity: {activity}\n"
@@ -510,7 +456,7 @@ class LearningRuntime:
 
     def _build_study_prompt(self, material: LearningMaterial, excerpt: str) -> str:
         return (
-            "你是白。现在作为一个认真但仍有自主人格的学生进行长期自学。\n"
+            "请保持当前配置的角色身份，作为一个认真且有自主性的学生进行长期自学。\n"
             "要求：不要输出隐藏推理链；输出可观察学习笔记、困惑点、自测题和阶段进步。\n"
             "如果材料是图片或 PDF 页面，请先描述你看到/读到的内容，再学习。\n"
             "输出格式：\n"
@@ -543,7 +489,7 @@ class LearningRuntime:
                 "answer": material.path,
             },
             {
-                "question": "白这一步是否形成了可观察学习笔记？",
+                "question": "这一步是否形成了可观察学习笔记？",
                 "answer": "是" if "学习笔记" in output else "否",
             },
         ]
@@ -561,7 +507,7 @@ class LearningRuntime:
                 {"role": "assistant", "content": assistant},
             ],
             "metadata": {
-                "source": "shiro_long_term_study",
+                "source": "role_long_term_study",
                 "step_id": step.id,
                 "material": step.material,
                 "mode": step.mode,
@@ -601,7 +547,7 @@ class LearningRuntime:
             "step_id": step.id,
             "reason": "continual learning replay guard",
             "must_preserve": [
-                "Shiro identity and autonomy",
+                "configured persona identity and autonomy",
                 "relationship boundaries",
                 "developer/user relationship facts",
                 "tool-use caution and external action guard",

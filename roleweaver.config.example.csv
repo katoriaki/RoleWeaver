@@ -14,12 +14,9 @@ background_idle_seconds,600,Minimum idle seconds before automatic background wor
 background_window_start,02:00,"Daily background window start, HH:MM local time"
 background_window_end,05:30,"Daily background window end, HH:MM local time"
 background_max_minutes,20,Maximum intended minutes for one background job
-autonomous_learning_enabled,false,Let Shiro learn from web search while idle
+autonomous_learning_enabled,false,Let the configured role learn from web search while idle
 autonomous_learning_subjects,"mathematics, computer science",Comma-separated subjects for autonomous web study
 autonomous_learning_interval_seconds,1800,Minimum seconds between autonomous learning steps
 autonomous_learning_use_model,true,Use the loaded model to write study notes; false keeps dry-run only
 autonomous_learning_max_new_tokens,512,Max tokens for one autonomous study note generation
-shiro_enabled,false,Enable Shiro cognitive-state bridge
-shiro_root,shiro\data\roleweaver,Directory where Shiro stores session cognitive state
-shiro_identity,白,Cognitive identity name
 ui_language,zh,Web UI language: zh, ja, or en

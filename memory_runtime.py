@@ -3,6 +3,7 @@ import math
 import os
 import re
 import sys
+import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -300,18 +301,31 @@ def normalize_memory_evidence_list(values) -> List[str]:
 
 
 def load_json_file(path: str, default):
-    if not os.path.exists(path):
-        return default
     try:
         with open(path, "r", encoding="utf-8") as f:
             return json.load(f)
-    except Exception:
+    except FileNotFoundError:
         return default
 
 
 def save_json_file(path: str, data):
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+    # Serialize before opening a file, then replace atomically on the same volume.
+    # Failed writes must leave the previous memory/state snapshot intact.
+    serialized = json.dumps(data, ensure_ascii=False, indent=2)
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=target.parent,
+                                         prefix=f".{target.name}.", suffix=".tmp", delete=False) as f:
+            temp_path = Path(f.name)
+            f.write(serialized)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(temp_path, target)
+    finally:
+        if temp_path is not None:
+            temp_path.unlink(missing_ok=True)
 
 
 def normalize_for_match(text: str) -> str:
@@ -1302,6 +1316,9 @@ class HybridMemoryStore:
         self.reranker_model_name = reranker_model_name
         self.reranker_candidate_k = reranker_candidate_k
         self.memories: List[Dict] = self._load_memories()
+        self._meta_file = f"{self.memory_file}.meta.json"
+        stored_next_id = load_json_file(self._meta_file, {}).get("next_id", 1)
+        self._next_id = max(int(stored_next_id), max((m["id"] for m in self.memories), default=0) + 1)
         self.encoder = None
         self.reranker = None
         self.dimension = None
@@ -1312,7 +1329,7 @@ class HybridMemoryStore:
     def _load_memories(self) -> List[Dict]:
         data = load_json_file(self.memory_file, [])
         if not isinstance(data, list):
-            return []
+            raise ValueError(f"Memory file must contain a JSON list: {self.memory_file}")
         normalized = []
         for i, item in enumerate(data, start=1):
             if not isinstance(item, dict):
@@ -1354,6 +1371,9 @@ class HybridMemoryStore:
         return [m for m in normalized if m["content"]]
 
     def _save_memories(self):
+        # Persist the high-water mark first; an interrupted write can skip an ID,
+        # but must never bind an old reference to a new memory after deletion.
+        save_json_file(self._meta_file, {"next_id": self._next_id})
         save_json_file(self.memory_file, self.memories)
 
     def _indexable_text(self, memory: Dict) -> str:
@@ -1565,7 +1585,7 @@ class HybridMemoryStore:
             )
 
         memory = {
-            "id": len(self.memories) + 1,
+            "id": self._next_id,
             "schema_version": str(metadata.get("schema_version", "1.0")),
             "content": content,
             "memory_type": memory_type,
@@ -1590,6 +1610,7 @@ class HybridMemoryStore:
             "source": source,
             "source_kind": normalized_source,
         }
+        self._next_id += 1
         self.memories.append(memory)
         if contradiction_hits:
             added_id = int(memory["id"])
@@ -1660,8 +1681,6 @@ class HybridMemoryStore:
 
     def delete_memory(self, memory_id: int):
         self.memories = [m for m in self.memories if m["id"] != memory_id]
-        for i, memory in enumerate(self.memories, start=1):
-            memory["id"] = i
         self._save_memories()
         self._rebuild_index()
 
@@ -1958,17 +1977,18 @@ class ConversationState:
     def _load_state(self) -> Dict:
         data = load_json_file(self.state_file, {})
         if not isinstance(data, dict):
-            data = {}
+            raise ValueError(f"Conversation state must contain a JSON object: {self.state_file}")
         data.setdefault("recent_history", [])
         data.setdefault("summaries", [])
         data.setdefault("pending_turns", [])
+        data["next_summary_id"] = max(int(data.get("next_summary_id", 1)), max((int(item["id"]) for item in data["summaries"]), default=0) + 1)
         return data
 
     def _save_state(self):
         save_json_file(self.state_file, self.state)
 
     def clear(self):
-        self.state = {"recent_history": [], "summaries": [], "pending_turns": []}
+        self.state = {"recent_history": [], "summaries": [], "pending_turns": [], "next_summary_id": self.state["next_summary_id"]}
         self._save_state()
 
     def get_recent_history(self, max_messages: Optional[int] = None) -> List[Dict]:
@@ -2003,8 +2023,10 @@ class ConversationState:
         if not pieces:
             return None
 
+        summary_id = self.state["next_summary_id"]
+        self.state["next_summary_id"] += 1
         return {
-            "id": len(self.state.get("summaries", [])) + 1,
+            "id": summary_id,
             "content": " / ".join(pieces),
             "timestamp": now_ts(),
             "turn_count": len(messages),
@@ -2026,8 +2048,6 @@ class ConversationState:
             if summary is not None:
                 self.state["summaries"].append(summary)
                 self.state["summaries"] = self.state["summaries"][-self.max_summaries:]
-                for i, item in enumerate(self.state["summaries"], start=1):
-                    item["id"] = i
                 archived.append(summary)
             self.state["recent_history"] = self.state["recent_history"][self.archive_chunk :]
 
@@ -2053,8 +2073,6 @@ class ConversationState:
 
         if archived:
             self.state["summaries"] = self.state["summaries"][-self.max_summaries:]
-            for i, item in enumerate(self.state["summaries"], start=1):
-                item["id"] = i
         self.state["recent_history"] = history[archive_count:]
         self._save_state()
         return archived
@@ -2087,15 +2105,16 @@ class KnowledgeGraphStore:
     def _load_graph(self) -> Dict:
         data = load_json_file(self.graph_file, {})
         if not isinstance(data, dict):
-            data = {}
+            raise ValueError(f"Knowledge graph must contain a JSON object: {self.graph_file}")
         data.setdefault("triples", [])
+        data["next_id"] = max(int(data.get("next_id", 1)), max((int(item["id"]) for item in data["triples"]), default=0) + 1)
         return data
 
     def _save_graph(self):
         save_json_file(self.graph_file, self.graph)
 
     def seed_defaults(self):
-        self.graph = {"triples": []}
+        self.graph = {"triples": [], "next_id": self.graph.get("next_id", 1)}
         for fact in self.seed_facts:
             self.add_fact(
                 subject=fact["subject"],
@@ -2104,6 +2123,7 @@ class KnowledgeGraphStore:
                 tags=fact.get("tags", []),
                 source=fact.get("source", "seed"),
                 confidence=fact.get("confidence", 1.0),
+                fact_type=fact.get("fact_type", "character"),
             )
 
     def add_fact(
@@ -2155,7 +2175,7 @@ class KnowledgeGraphStore:
                     superseded_ids.append(triple["id"])
 
         self.graph["triples"].append({
-            "id": len(self.graph["triples"]) + 1,
+            "id": self.graph["next_id"],
             "subject": subject,
             "relation": relation,
             "object": object_value,
@@ -2169,6 +2189,7 @@ class KnowledgeGraphStore:
             "active": bool(active),
             "supersedes": superseded_ids,
         })
+        self.graph["next_id"] += 1
         self._save_graph()
         return True
 
@@ -2204,8 +2225,6 @@ class KnowledgeGraphStore:
             kept.append(fact)
 
         self.graph["triples"] = kept
-        for i, fact in enumerate(self.graph["triples"], start=1):
-            fact["id"] = i
         self._save_graph()
         return before - len(kept)
 
@@ -2761,8 +2780,40 @@ class MemoryRuntime:
             user_subject=self.user_subject,
             assistant_label=self.assistant_label,
         )
+        # A model-generated write plan is still derived from conversation. It
+        # cannot promote a user claim into trusted character canon, even when
+        # it supplies a high confidence or spoofs a skill source/type.
+        protected_subjects = {normalize_for_match(self.assistant_label)}
+        protected_subjects.update(
+            normalize_for_match(fact.get("subject", ""))
+            for fact in self.knowledge.seed_facts
+        )
+        protected_subjects.update(
+            normalize_for_match(fact.get("subject", ""))
+            for fact in self.knowledge.list_facts(active_only=False)
+            if fact.get("fact_type") == "character" or "core" in fact.get("tags", [])
+        )
+        graph_facts = [
+            fact for fact in write_plan["graph_facts"]
+            if normalize_for_match(fact.get("subject", "")) not in protected_subjects
+            and fact.get("fact_type") != "character"
+            and "core" not in fact.get("tags", [])
+        ]
+        episodic_candidates = [
+            item for item in write_plan["episodic_candidates"]
+            if item.get("category") != "character_fact"
+            and item.get("metadata", {}).get("memory_type") != "character_fact"
+            and item.get("metadata", {}).get("scope") != "character_canon"
+        ]
+        rejected_canon_count = (
+            len(write_plan["graph_facts"]) - len(graph_facts)
+            + len(write_plan["episodic_candidates"]) - len(episodic_candidates)
+        )
+        write_plan["graph_facts"] = graph_facts
+        write_plan["episodic_candidates"] = episodic_candidates
         write_plan["status"] = "consolidated"
         write_plan.setdefault("write_meta", {})
+        write_plan["write_meta"]["rejected_character_canon_count"] = rejected_canon_count
         write_plan["write_meta"]["pending_turn_count"] = len(pending_turns)
         self.last_write_plan = write_plan
 
@@ -2773,7 +2824,7 @@ class MemoryRuntime:
                 relation=fact["relation"],
                 object_value=fact["object"],
                 tags=fact.get("tags", []),
-                source=fact.get("source", "conversation"),
+                source="conversation",
                 confidence=fact.get("confidence", 0.8),
                 fact_type=fact.get("fact_type", "fact"),
             )
@@ -2997,8 +3048,6 @@ class MemoryRuntime:
                 for memory in self.episodic.list_memories()
                 if not (memory.get("metadata", {}).get("summary_id") in summary_ids and "summary" in memory.get("tags", []))
             ]
-            for i, memory in enumerate(self.episodic.memories, start=1):
-                memory["id"] = i
             self.episodic._save_memories()
             self.episodic._rebuild_index()
             return "历史摘要已清空，近期窗口已保留，摘要归档也已从情节记忆中移除。"

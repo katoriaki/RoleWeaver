@@ -487,30 +487,6 @@ input:focus, select:focus, textarea:focus {
 .pet-face span:first-child { left: -78%; }
 .pet-face span:last-child { right: -78%; }
 
-.pet-avatar.focused .pet-face,
-.pet-avatar.guarded .pet-face {
-  width: 26%;
-  border-radius: 999px;
-  border-bottom-color: transparent;
-  border-top: 5px solid #1f2933;
-}
-
-.pet-avatar.hurt .pet-face {
-  border-bottom-color: transparent;
-  border-top: 5px solid #1f2933;
-}
-
-.pet-avatar.tired::before,
-.pet-avatar.tired::after {
-  height: 4%;
-  top: 34%;
-}
-
-.pet-avatar.warm,
-.pet-avatar.playful {
-  filter: saturate(1.12);
-}
-
 @keyframes petIdle {
   0%, 100% { transform: translateY(0); }
   50% { transform: translateY(-8px); }

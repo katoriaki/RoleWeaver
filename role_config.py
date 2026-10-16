@@ -33,9 +33,6 @@ DEFAULT_AUTONOMOUS_LEARNING_INTERVAL_SECONDS = 1800
 DEFAULT_AUTONOMOUS_LEARNING_USE_MODEL = True
 DEFAULT_AUTONOMOUS_LEARNING_MAX_NEW_TOKENS = 512
 DEFAULT_PRELOAD_MODEL_ON_STARTUP = False
-DEFAULT_SHIRO_ENABLED = False
-DEFAULT_SHIRO_ROOT = str(PROJECT_ROOT / "shiro" / "data" / "roleweaver")
-DEFAULT_SHIRO_IDENTITY = "\u767d"
 DEFAULT_CONFIG_FILENAMES = (
     "roleweaver.config.csv",
     "roleweaver.config.toml",
@@ -426,9 +423,6 @@ class RoleConfig:
     autonomous_learning_use_model: bool = DEFAULT_AUTONOMOUS_LEARNING_USE_MODEL
     autonomous_learning_max_new_tokens: int = DEFAULT_AUTONOMOUS_LEARNING_MAX_NEW_TOKENS
     preload_model_on_startup: bool = DEFAULT_PRELOAD_MODEL_ON_STARTUP
-    shiro_enabled: bool = DEFAULT_SHIRO_ENABLED
-    shiro_root: str = DEFAULT_SHIRO_ROOT
-    shiro_identity: str = DEFAULT_SHIRO_IDENTITY
     system_prompt: str = DEFAULT_ROLE_SYSTEM_PROMPT
     normal_system_prompt: str = NORMAL_SYSTEM_PROMPT
     memory_judge_system_prompt: str = DEFAULT_MEMORY_JUDGE_SYSTEM_PROMPT
@@ -556,12 +550,6 @@ class RoleConfig:
                 pick("preload_model_on_startup", "ROLEWEAVER_PRELOAD_MODEL_ON_STARTUP", DEFAULT_PRELOAD_MODEL_ON_STARTUP),
                 DEFAULT_PRELOAD_MODEL_ON_STARTUP,
             ),
-            shiro_enabled=normalize_bool(
-                pick("shiro_enabled", "ROLEWEAVER_SHIRO_ENABLED", DEFAULT_SHIRO_ENABLED),
-                DEFAULT_SHIRO_ENABLED,
-            ),
-            shiro_root=pick("shiro_root", "ROLEWEAVER_SHIRO_ROOT", DEFAULT_SHIRO_ROOT),
-            shiro_identity=pick("shiro_identity", "ROLEWEAVER_SHIRO_IDENTITY", DEFAULT_SHIRO_IDENTITY),
             system_prompt=pick("system_prompt", "ROLEWEAVER_SYSTEM_PROMPT", DEFAULT_ROLE_SYSTEM_PROMPT),
             normal_system_prompt=pick("normal_system_prompt", "ROLEWEAVER_NORMAL_SYSTEM_PROMPT", NORMAL_SYSTEM_PROMPT),
             skill_file=skill_file,

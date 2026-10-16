@@ -136,6 +136,10 @@ runtime\Scripts\python.exe eval\persona_regression\run_long_dialogue_drift.py --
 
 Use fewer rounds for a quick smoke test and more rounds before publishing a role package.
 
+Drift report schema version 2 retains every submitted prompt and reply, including filler turns. Filler records have `probe: false` and `passed: null`; only records with `probe: true` contribute to probe failure counts. The report also records session IDs, round indices, token limits, the applied probe expectations, source-file hashes, and available run/configuration metadata. Consumers of older probe-only reports must filter on `probe` when reading version 2.
+
+These are heuristic smoke checks, not the factorial internal-state analysis in the persona-drift manuscript or a reproduction of Persistent Personas. Empty responses fail, but non-empty generic responses may still pass substring rules, and negated or quoted forbidden phrases can produce false failures. The report does not capture pre-existing server memory, effective model/adapter revisions, or all generation settings. Preserve those separately for a research experiment. Surface labels alone do not test actual LINE, TTS, or image processing.
+
 Supported case shapes:
 
 ```json

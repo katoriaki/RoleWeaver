@@ -113,7 +113,7 @@ def quality_skip(text: str) -> Optional[str]:
     return None
 
 
-def rewrite_for_shiro(text: str, identity: str) -> Tuple[str, List[str]]:
+def rewrite_for_role(text: str, identity: str) -> Tuple[str, List[str]]:
     warnings: List[str] = []
     out = text
     for name in SOURCE_NAMES:
@@ -140,7 +140,7 @@ def build_pairs_from_rows(
     for speaker, text, voice_name in rows:
         if speaker in TARGET_SPEAKERS or voice_name in TARGET_SPEAKERS:
             reason = quality_skip(text)
-            assistant_text, warnings = rewrite_for_shiro(text, identity)
+            assistant_text, warnings = rewrite_for_role(text, identity)
             if reason is None and not keep_fact_rows and any(w.startswith("source_fact:") for w in warnings):
                 reason = "source_fact"
             if reason:
@@ -166,7 +166,7 @@ def build_pairs_from_rows(
                     label = "对话者"
                 prompt_lines.append(f"{label}: {tx}")
             prompt = "\n".join(prompt_lines)
-            prompt, prompt_warnings = rewrite_for_shiro(prompt, "参考人格")
+            prompt, prompt_warnings = rewrite_for_role(prompt, "参考人格")
             warnings.extend(prompt_warnings)
             records.append(
                 {
@@ -174,7 +174,7 @@ def build_pairs_from_rows(
                         {
                             "role": "user",
                             "content": (
-                                "请保持白的人格核心，只学习这种「有限记忆的人工人格、安静笨拙的关心」反应模式。\n"
+                                f"请保持{identity}的角色设定，只学习这种「有限记忆的人工人格、安静笨拙的关心」反应模式。\n"
                                 f"场景片段：\n{prompt}"
                             ),
                         },
@@ -269,7 +269,7 @@ def build_dataset(
         "policy": [
             "Rows are trait-pattern references only.",
             "Source names and setting terms are rewritten or skipped.",
-            "Do not treat generated rows as Shiro canon or memory.",
+            "Do not treat generated rows as the target role's canon or memory.",
         ],
     }
     report_path.parent.mkdir(parents=True, exist_ok=True)
@@ -282,9 +282,9 @@ def main() -> None:
     parser.add_argument("--scenario-dir", required=True)
     parser.add_argument("--freemote", default="")
     parser.add_argument("--decompiled-dir", default=".codex_tmp/plastic_memories_decompiled")
-    parser.add_argument("--output", default="resources/shiro_persona_sft/raw/limited_memory_ai/plastic_memories_isla.jsonl")
-    parser.add_argument("--report", default="data/shiro_persona_sft/plastic_memories_isla.report.json")
-    parser.add_argument("--identity", default="白")
+    parser.add_argument("--output", default="resources/persona_sft/raw/limited_memory_ai/plastic_memories_isla.jsonl")
+    parser.add_argument("--report", default="data/persona_sft/plastic_memories_isla.report.json")
+    parser.add_argument("--identity", default="RoleAgent")
     parser.add_argument("--context-turns", type=int, default=3)
     parser.add_argument("--max-records", type=int, default=1200)
     parser.add_argument("--decompile-limit", type=int, default=0, help="0 means all files.")

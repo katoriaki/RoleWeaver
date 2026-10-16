@@ -11,7 +11,7 @@ if not defined PY set "PY=python"
 echo [RoleWeaver] Watching remote Qwen3-Omni LoRA training...
 echo [RoleWeaver] Press Ctrl+C to close this monitor. Training keeps running on the server.
 echo.
-"%PY%" server\watch_remote_training.py --run-dir training_runs/qwen3_omni_shiro_persona/latest
+"%PY%" server\watch_remote_training.py --run-dir training_runs/qwen3_omni_persona/latest %*
 
 echo.
 pause

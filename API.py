@@ -16,11 +16,11 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel, Field
 
 from learning_runtime import LearningRuntime, TEXTBOOK_REPO_URL
-from role_chat_service import RoleChatService
+from role_chat_service import LegacySessionMigrationError, RoleChatService
 from anchor_runtime import load_anchor_bank, render_anchor_context, select_anchor
 from background_scheduler import BackgroundScheduler, BackgroundSchedulerConfig
 from planning_runtime import (
@@ -64,8 +64,8 @@ PERSONA_ANCHOR_ROOT = PROJECT_ROOT / "data" / "persona_anchors"
 TEXTBOOK_ROOT = PROJECT_ROOT / "resources" / "textbooks" / "ChinaTextbook"
 LINE_ENV_FILE = PROJECT_ROOT / "line" / ".env"
 LINE_SURFACE_POLICY_FILE = PROJECT_ROOT / "line" / "surface_policy.json"
-PET_MODEL_ROOT = PROJECT_ROOT / "shiro" / "Shiro" / "March 7th"
-PET_MODEL_JSON = PET_MODEL_ROOT / "march 7th.model3.json"
+PET_MODEL_JSON = Path(os.getenv("ROLEWEAVER_PET_MODEL_JSON") or PROJECT_ROOT / "resources" / "avatar" / "model.model3.json").expanduser()
+PET_MODEL_ROOT = PET_MODEL_JSON.parent
 EPHEMERAL_RUNTIME_SESSION_IDS = {"api"}
 CONFIG_NOTES = {
     "base_model_path": "Required: local path to the base model directory",
@@ -83,15 +83,12 @@ CONFIG_NOTES = {
     "background_window_start": "Daily background window start, HH:MM local time",
     "background_window_end": "Daily background window end, HH:MM local time",
     "background_max_minutes": "Maximum intended minutes for one background job",
-    "autonomous_learning_enabled": "Let Shiro run idle web-study steps after memory consolidation",
+    "autonomous_learning_enabled": "Let RoleWeaver run idle web-study steps after memory consolidation",
     "autonomous_learning_subjects": "Comma-separated subjects for autonomous web study",
     "autonomous_learning_interval_seconds": "Minimum seconds between autonomous learning steps",
     "autonomous_learning_use_model": "Use the loaded model to write study notes; false keeps the loop dry-run only",
     "autonomous_learning_max_new_tokens": "Max tokens for one autonomous study note generation",
     "preload_model_on_startup": "Load the default model during API startup instead of waiting for the first chat request",
-    "shiro_enabled": "Enable Shiro cognitive-state bridge for this runtime/session",
-    "shiro_root": "Directory where Shiro stores RoleWeaver session cognitive state",
-    "shiro_identity": "Cognitive identity name, such as 白",
     "ui_language": "Web UI language: zh, ja, or en",
 }
 
@@ -147,9 +144,6 @@ class ConfigResponse(BaseModel):
     autonomous_learning_use_model: bool = True
     autonomous_learning_max_new_tokens: int = 512
     preload_model_on_startup: bool = False
-    shiro_enabled: bool = False
-    shiro_root: str = ""
-    shiro_identity: str = "白"
     ui_language: str = "zh"
 
 
@@ -218,21 +212,11 @@ class ConfigUpdate(BaseModel):
     autonomous_learning_use_model: Optional[bool] = None
     autonomous_learning_max_new_tokens: Optional[int] = None
     preload_model_on_startup: Optional[bool] = None
-    shiro_enabled: Optional[bool] = None
-    shiro_root: Optional[str] = None
-    shiro_identity: Optional[str] = None
     ui_language: Optional[str] = None
 
 
-class ShiroObserveRequest(BaseModel):
-    text: str
-    source: str = "manual"
-    metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
-class ShiroToolIntentRequest(BaseModel):
-    text: str
-    metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
 class BackgroundRunRequest(BaseModel):
@@ -242,7 +226,7 @@ class BackgroundRunRequest(BaseModel):
 
 
 class LearningRunRequest(BaseModel):
-    session_id: str = "shiro-study"
+    session_id: str = "role-study"
     subject: str = ""
     use_model: bool = False
     max_new_tokens: int = 384
@@ -254,14 +238,14 @@ class LearningStartRequest(LearningRunRequest):
 
 
 class PersonaAnchorRunRequest(BaseModel):
-    session_id: str = "shiro-study"
+    session_id: str = "role-study"
     turns: int = 3
     max_new_tokens: int = 160
     mentor_notes: List[str] = Field(default_factory=list)
 
 
 class PersonaAnchorPromoteRequest(BaseModel):
-    session_id: str = "shiro-study"
+    session_id: str = "role-study"
     candidate_id: str
     skill_file: Optional[str] = None
 
@@ -478,12 +462,6 @@ def _read_config_response(config_file: Optional[str]) -> ConfigResponse:
             values.get("preload_model_on_startup") or os.getenv("ROLEWEAVER_PRELOAD_MODEL_ON_STARTUP"),
             False,
         ),
-        shiro_enabled=normalize_bool(
-            values.get("shiro_enabled") or os.getenv("ROLEWEAVER_SHIRO_ENABLED"),
-            False,
-        ),
-        shiro_root=values.get("shiro_root") or os.getenv("ROLEWEAVER_SHIRO_ROOT") or str(PROJECT_ROOT / "shiro" / "data" / "roleweaver"),
-        shiro_identity=values.get("shiro_identity") or os.getenv("ROLEWEAVER_SHIRO_IDENTITY") or "白",
         ui_language=(values.get("ui_language") or "zh").lower(),
     )
 
@@ -514,9 +492,6 @@ def _config_response_from_snapshot(config_file: Optional[str], snapshot: Dict) -
         autonomous_learning_use_model=normalize_bool(snapshot.get("autonomous_learning_use_model"), True),
         autonomous_learning_max_new_tokens=normalize_positive_int(snapshot.get("autonomous_learning_max_new_tokens"), 512, minimum=64),
         preload_model_on_startup=normalize_bool(snapshot.get("preload_model_on_startup"), False),
-        shiro_enabled=normalize_bool(snapshot.get("shiro_enabled"), False),
-        shiro_root=snapshot.get("shiro_root") or str(PROJECT_ROOT / "shiro" / "data" / "roleweaver"),
-        shiro_identity=snapshot.get("shiro_identity") or "白",
         ui_language=(snapshot.get("ui_language") or "zh").lower(),
     )
 
@@ -556,9 +531,6 @@ def _write_config(config_file: Optional[str], update: ConfigUpdate) -> ConfigRes
         current.get("autonomous_learning_max_new_tokens"), 512, minimum=64
     )
     current["preload_model_on_startup"] = normalize_bool(current.get("preload_model_on_startup"), False)
-    current["shiro_enabled"] = normalize_bool(current.get("shiro_enabled"), False)
-    current["shiro_root"] = (current.get("shiro_root") or str(PROJECT_ROOT / "shiro" / "data" / "roleweaver")).strip()
-    current["shiro_identity"] = (current.get("shiro_identity") or "白").strip()
     if current.get("ui_language") not in {"zh", "ja", "en"}:
         current["ui_language"] = "zh"
 
@@ -590,9 +562,6 @@ def _write_config(config_file: Optional[str], update: ConfigUpdate) -> ConfigRes
                 "autonomous_learning_use_model",
                 "autonomous_learning_max_new_tokens",
                 "preload_model_on_startup",
-                "shiro_enabled",
-                "shiro_root",
-                "shiro_identity",
                 "ui_language",
             ]:
                 writer.writerow([key, current.get(key, ""), CONFIG_NOTES.get(key, "")])
@@ -863,10 +832,10 @@ def _scan_sessions(config_file: Optional[str]) -> List[SessionSummary]:
 
 
 def _find_session(config_file: Optional[str], session_id: str) -> Optional[SessionSummary]:
-    for summary in _scan_sessions(config_file):
-        if summary.session_id == session_id:
-            return summary
-    return None
+    matches = [summary for summary in _scan_sessions(config_file) if summary.session_id == session_id]
+    if len(matches) > 1:
+        raise HTTPException(status_code=409, detail="Session ID exists in multiple memory scopes; resolve the duplicate before loading or deleting it.")
+    return matches[0] if matches else None
 
 
 def _delete_session_dir(config_file: Optional[str], summary: SessionSummary):
@@ -938,6 +907,11 @@ def create_app(config_file: Optional[str] = None) -> FastAPI:
             learning_stop_event.set()
 
     app = FastAPI(title="RoleWeaver API", lifespan=lifespan)
+
+    @app.exception_handler(LegacySessionMigrationError)
+    async def legacy_session_migration_required(_request, exc):
+        return JSONResponse(status_code=409, content={"detail": str(exc)})
+
     initial_config = _read_config_response(config_file)
     background_scheduler = BackgroundScheduler(
         BACKGROUND_ROOT,
@@ -1151,10 +1125,16 @@ def create_app(config_file: Optional[str] = None) -> FastAPI:
                 context_window_tokens=snapshot.get("context_window_tokens"),
                 local_location=snapshot.get("local_location"),
                 preload_model_on_startup=snapshot.get("preload_model_on_startup"),
-                shiro_enabled=snapshot.get("shiro_enabled"),
-                shiro_root=snapshot.get("shiro_root"),
-                shiro_identity=snapshot.get("shiro_identity"),
+                role_name=snapshot.get("role_name"),
+                user_subject=snapshot.get("user_subject"),
+                system_prompt=snapshot.get("system_prompt"),
+                normal_system_prompt=snapshot.get("normal_system_prompt"),
+                character_knowledge_seed=snapshot.get("character_knowledge_seed"),
             )
+            if snapshot.get("skill_text_format") == "expanded_v1":
+                # A saved expanded bundle is already complete. from_env otherwise
+                # reads the current skill again and duplicates or changes the role.
+                config.skill_text = snapshot.get("skill_text") or ""
             service_cache[key] = RoleChatService(config=config)
         return service_cache[key]
 
@@ -1164,17 +1144,28 @@ def create_app(config_file: Optional[str] = None) -> FastAPI:
         if session_id in EPHEMERAL_RUNTIME_SESSION_IDS and session_id not in session_config_overrides:
             return None
         if session_id in session_config_overrides:
-            return session_config_overrides[session_id]
-        summary = _find_session(config_file, session_id)
-        if summary is None:
-            return None
-        session_config_overrides[session_id] = dict(summary.settings_snapshot)
-        return session_config_overrides[session_id]
+            snapshot = session_config_overrides[session_id]
+        else:
+            summary = _find_session(config_file, session_id)
+            if summary is None:
+                return None
+            snapshot = dict(summary.settings_snapshot)
+            session_config_overrides[session_id] = snapshot
+        if snapshot.get("memory_scope_version") != 2:
+            # Old snapshots may contain inline OR expanded skill text. Rebuilding
+            # them can change the old hash and bypass directory-based detection.
+            raise LegacySessionMigrationError(
+                f"Legacy session requires explicit migration: {session_id}. "
+                "Review the existing session directory and persona, then migrate it "
+                "and refresh its settings snapshots before resuming."
+            )
+        return snapshot
 
     def snapshot_uses_current_runtime(snapshot: Dict) -> bool:
         if not snapshot:
             return True
         current = _read_config_response(config_file)
+        current_role = RoleConfig.from_env(config_file=config_file)
         current_values = {
             "base_model_path": current.base_model_path or "",
             "lora_path": current.lora_path or "",
@@ -1185,8 +1176,6 @@ def create_app(config_file: Optional[str] = None) -> FastAPI:
             "model_loader_mode": current.model_loader_mode,
             "context_window_tokens": current.context_window_tokens,
             "local_location": current.local_location,
-            "shiro_enabled": bool(current.shiro_enabled),
-            "shiro_root": current.shiro_root or "",
         }
         snapshot_values = {
             "base_model_path": snapshot.get("base_model_path") or "",
@@ -1198,9 +1187,16 @@ def create_app(config_file: Optional[str] = None) -> FastAPI:
             "model_loader_mode": normalize_model_loader_mode(snapshot.get("model_loader_mode")),
             "context_window_tokens": normalize_context_window_tokens(snapshot.get("context_window_tokens")),
             "local_location": snapshot.get("local_location") or current.local_location,
-            "shiro_enabled": normalize_bool(snapshot.get("shiro_enabled"), False),
-            "shiro_root": snapshot.get("shiro_root") or current.shiro_root or "",
         }
+        identity_fields = ("role_name", "user_subject", "system_prompt", "normal_system_prompt", "character_knowledge_seed")
+        for field in identity_fields:
+            if field in snapshot and snapshot[field] != getattr(current_role, field):
+                return False
+        if snapshot.get("skill_text_format") == "expanded_v1":
+            if snapshot.get("skill_text", "") != current_role.skill_text:
+                return False
+            # The ordinary configuration response contains only inline text.
+            snapshot_values["skill_text"] = current_values["skill_text"]
         return snapshot_values == current_values
 
     def get_service_for_session(session_id: str) -> RoleChatService:
@@ -1242,7 +1238,7 @@ def create_app(config_file: Optional[str] = None) -> FastAPI:
         return LearningRuntime(
             LEARNING_ROOT,
             textbook_root=TEXTBOOK_ROOT,
-            session_id=payload.session_id or "shiro-study",
+            session_id=payload.session_id or "role-study",
             subject=payload.subject or "",
         )
 
@@ -1264,18 +1260,10 @@ def create_app(config_file: Optional[str] = None) -> FastAPI:
                 max_new_tokens=max_new_tokens,
             )
 
-        def observe_shiro(text: str, source: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
-            return get_service_for_session(payload.session_id).observe_shiro_stimulus(
-                payload.session_id,
-                text,
-                source=source,
-                metadata=metadata,
-            )
 
         step = runtime.run_step(
             chat_text=chat_text,
             chat_image=chat_image,
-            observe_shiro=observe_shiro,
             use_model=bool(payload.use_model),
             max_new_tokens=max(64, min(int(payload.max_new_tokens or 384), 2048)),
         )
@@ -1310,7 +1298,7 @@ def create_app(config_file: Optional[str] = None) -> FastAPI:
         runtime = LearningRuntime(
             LEARNING_ROOT,
             textbook_root=TEXTBOOK_ROOT,
-            session_id=session_id or "shiro-study",
+            session_id=session_id or "role-study",
             subject="",
         )
         cycle_action = runtime.autonomous_cycle_status()
@@ -1345,18 +1333,10 @@ def create_app(config_file: Optional[str] = None) -> FastAPI:
                 max_new_tokens=max_new_tokens,
             )
 
-        def observe_shiro(text: str, source: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
-            return service.observe_shiro_stimulus(
-                session_id,
-                text,
-                source=source,
-                metadata=metadata,
-            )
 
         step = runtime.run_web_step(
             search_fn=lambda query, limit: web_search(query, limit=limit),
             chat_text=chat_text,
-            observe_shiro=observe_shiro,
             use_model=bool(config_response.autonomous_learning_use_model),
             max_new_tokens=max(64, min(int(config_response.autonomous_learning_max_new_tokens or 512), 2048)),
             schedule_state=schedule_state,
@@ -1409,12 +1389,8 @@ def create_app(config_file: Optional[str] = None) -> FastAPI:
         finally:
             learning_state["active"] = False
 
-    def learning_status_for(session_id: str = "shiro-study", subject: str = "") -> Dict[str, Any]:
+    def learning_status_for(session_id: str = "role-study", subject: str = "") -> Dict[str, Any]:
         runtime = LearningRuntime(LEARNING_ROOT, textbook_root=TEXTBOOK_ROOT, session_id=session_id, subject=subject)
-        try:
-            shiro = get_service_for_session(session_id).shiro_status(session_id)
-        except Exception as exc:
-            shiro = {"available": False, "error": str(exc)}
         return {
             "job": {
                 key: value
@@ -1422,7 +1398,6 @@ def create_app(config_file: Optional[str] = None) -> FastAPI:
                 if key != "thread"
             },
             "runtime": runtime.status(),
-            "shiro": shiro,
             "repo": {
                 "url": TEXTBOOK_REPO_URL,
                 "local_path": str(TEXTBOOK_ROOT),
@@ -1431,7 +1406,7 @@ def create_app(config_file: Optional[str] = None) -> FastAPI:
             },
         }
 
-    def persona_anchor_forge_for(session_id: str = "shiro-study") -> Dict[str, Any]:
+    def persona_anchor_forge_for(session_id: str = "role-study") -> Dict[str, Any]:
         forge = PersonaAnchorForge(PERSONA_ANCHOR_ROOT)
         return {
             "session_id": session_id,
@@ -1441,14 +1416,14 @@ def create_app(config_file: Optional[str] = None) -> FastAPI:
         }
 
     def run_persona_anchor_forge(payload: PersonaAnchorRunRequest) -> Dict[str, Any]:
-        session_id = payload.session_id or "shiro-study"
+        session_id = payload.session_id or "role-study"
         service = get_service_for_session(session_id)
         summary = _find_session(config_file, session_id)
         memory_scope = Path(summary.memory_scope_path) if summary else service.session_root
         current = _read_config_response(config_file)
         schedule = ensure_weekly_schedule(
             memory_scope,
-            role_name=current.shiro_identity or "白",
+            role_name=service.config.role_name,
             location=current.local_location,
             force=False,
         )
@@ -1474,7 +1449,7 @@ def create_app(config_file: Optional[str] = None) -> FastAPI:
         }
 
     def promote_persona_anchor(payload: PersonaAnchorPromoteRequest) -> Dict[str, Any]:
-        session_id = payload.session_id or "shiro-study"
+        session_id = payload.session_id or "role-study"
         forge = PersonaAnchorForge(PERSONA_ANCHOR_ROOT)
         candidates = forge.list_candidates(session_id, limit=500)
         target = next((item for item in candidates if item.get("id") == payload.candidate_id), None)
@@ -1812,7 +1787,7 @@ def create_app(config_file: Optional[str] = None) -> FastAPI:
         tool_runtime.register(
             ToolSpec(
                 name="learning.status",
-                description="Read Shiro long-term study runtime status.",
+                description="Read RoleWeaver long-term study runtime status.",
                 category="learning",
                 parameters={
                     "type": "object",
@@ -1823,12 +1798,12 @@ def create_app(config_file: Optional[str] = None) -> FastAPI:
                     "additionalProperties": False,
                 },
             ),
-            lambda args, ctx: learning_status_for(args.get("session_id") or ctx.session_id or "shiro-study", args.get("subject") or ""),
+            lambda args, ctx: learning_status_for(args.get("session_id") or ctx.session_id or "role-study", args.get("subject") or ""),
         )
         tool_runtime.register(
             ToolSpec(
                 name="learning.run_once",
-                description="Run one Shiro study step. With use_model=false this validates the loop without loading the LLM.",
+                description="Run one RoleWeaver study step. With use_model=false this validates the loop without loading the LLM.",
                 category="learning",
                 requires_session=True,
                 requires_llm=True,
@@ -1880,7 +1855,7 @@ def create_app(config_file: Optional[str] = None) -> FastAPI:
     async def web_vendor(asset_path: str):
         vendor_root = (WEB_ROOT / "vendor").resolve()
         target = (vendor_root / asset_path).resolve()
-        if not str(target).startswith(str(vendor_root)) or not target.exists():
+        if not target.is_relative_to(vendor_root) or not target.is_file():
             raise HTTPException(status_code=404, detail="vendor asset not found")
         return FileResponse(target)
 
@@ -1909,11 +1884,11 @@ def create_app(config_file: Optional[str] = None) -> FastAPI:
             for path in sorted((PET_MODEL_ROOT / "motions").glob("*.motion3.json"))
         ]
         return {
-            "model_name": "March 7th",
+            "model_name": PET_MODEL_JSON.stem.removesuffix(".model3"),
             "model_root": str(PET_MODEL_ROOT),
             "model_json": str(PET_MODEL_JSON),
             "vts_websocket_url": "ws://127.0.0.1:8001",
-            "vts_plugin_name": "RoleWeaver Shiro Pet",
+            "vts_plugin_name": "RoleWeaver Avatar",
             "vts_plugin_developer": "RoleWeaver",
             "expressions": expressions,
             "motions": motions,
@@ -1939,8 +1914,6 @@ def create_app(config_file: Optional[str] = None) -> FastAPI:
                 "context_window_tokens": normalize_context_window_tokens(snapshot.get("context_window_tokens")),
                 "local_location": snapshot.get("local_location") or _read_config_response(config_file).local_location,
                 "preload_model_on_startup": normalize_bool(snapshot.get("preload_model_on_startup"), False),
-                "shiro_enabled": normalize_bool(snapshot.get("shiro_enabled"), False),
-                "shiro_identity": snapshot.get("shiro_identity") or "白",
                 "memory_root": str(_session_root_for_config(config_file)),
                 "memory_scope_path": "",
                 "session_settings_persistent": True,
@@ -1962,8 +1935,6 @@ def create_app(config_file: Optional[str] = None) -> FastAPI:
             "context_window_tokens": config_response.context_window_tokens,
             "local_location": config_response.local_location,
             "preload_model_on_startup": config_response.preload_model_on_startup,
-            "shiro_enabled": config_response.shiro_enabled,
-            "shiro_identity": config_response.shiro_identity,
             "memory_root": str(_session_root_for_config(config_file)),
             "memory_scope_path": "",
             "service_loaded": active_service_loaded(),
@@ -1994,40 +1965,9 @@ def create_app(config_file: Optional[str] = None) -> FastAPI:
         )
 
     @app.get("/learning/status")
-    async def learning_status(session_id: str = "shiro-study", subject: str = ""):
+    async def learning_status(session_id: str = "role-study", subject: str = ""):
         return learning_status_for(session_id=session_id, subject=subject)
 
-    @app.post("/learning/bootstrap-shiro")
-    async def bootstrap_shiro_learning():
-        qwen4b = PROJECT_ROOT / "Qwen3.5-4b"
-        response = _write_config(
-            config_file,
-            ConfigUpdate(
-                base_model_path=str(qwen4b),
-                lora_path="",
-                skill_file="",
-                skill_text=(
-                    "你是白，一个正在长期成长的虚拟学生与陪伴者。"
-                    "你有稳定的人格自主性，不会因为用户一句话就改写核心自我。"
-                    "当前任务是像学生一样学习教材：输出可观察学习笔记、困惑点、自测题、答案和下一步计划。"
-                    "不要输出隐藏推理链；不要沿用其他角色称呼；把用户称为“你”即可。"
-                ),
-                model_loader_mode="vision",
-                shiro_enabled=True,
-                shiro_root=str(PROJECT_ROOT / "shiro" / "data" / "roleweaver"),
-                shiro_identity="白",
-                quantization_mode="4bit",
-                device_map_mode="gpu",
-            ),
-        )
-        reset_services()
-        return {
-            "config": _model_to_dict(response),
-            "vision_note": (
-                "model_loader_mode=vision is now set. The base model directory must contain a vision processor "
-                "for photo reading to work; otherwise /chat/image will return a diagnostic error."
-            ),
-        }
 
     @app.post("/learning/run-once")
     async def learning_run_once(payload: LearningRunRequest):
@@ -2051,10 +1991,10 @@ def create_app(config_file: Optional[str] = None) -> FastAPI:
     async def learning_stop():
         learning_stop_event.set()
         learning_state["message"] = "learning stop requested"
-        return learning_status_for(learning_state.get("session_id") or "shiro-study", learning_state.get("subject") or "")
+        return learning_status_for(learning_state.get("session_id") or "role-study", learning_state.get("subject") or "")
 
     @app.get("/persona-anchors/status")
-    async def persona_anchor_status(session_id: str = "shiro-study"):
+    async def persona_anchor_status(session_id: str = "role-study"):
         return persona_anchor_forge_for(session_id)
 
     @app.post("/persona-anchors/run")
@@ -2497,35 +2437,8 @@ def create_app(config_file: Optional[str] = None) -> FastAPI:
             "memory_os": get_service_for_session(session_id).session_memory_os_snapshot(session_id),
         }
 
-    @app.get("/sessions/{session_id}/shiro")
-    async def shiro_status(session_id: str):
-        summary = _find_session(config_file, session_id)
-        if summary is None:
-            raise HTTPException(status_code=404, detail=f"Session not found: {session_id}")
-        return get_service_for_session(session_id).shiro_status(session_id)
 
-    @app.post("/sessions/{session_id}/shiro/observe")
-    async def observe_shiro(session_id: str, payload: ShiroObserveRequest):
-        summary = _find_session(config_file, session_id)
-        if summary is None:
-            raise HTTPException(status_code=404, detail=f"Session not found: {session_id}")
-        return get_service_for_session(session_id).observe_shiro_stimulus(
-            session_id,
-            payload.text,
-            source=payload.source,
-            metadata=payload.metadata,
-        )
 
-    @app.post("/sessions/{session_id}/shiro/tool-intentions")
-    async def infer_shiro_tool_intentions(session_id: str, payload: ShiroToolIntentRequest):
-        summary = _find_session(config_file, session_id)
-        if summary is None:
-            raise HTTPException(status_code=404, detail=f"Session not found: {session_id}")
-        return get_service_for_session(session_id).infer_shiro_tool_intentions(
-            session_id,
-            payload.text,
-            metadata=payload.metadata,
-        )
 
     @app.patch("/sessions/{session_id}/memories/{memory_id}")
     async def update_memory(session_id: str, memory_id: int, payload: MemoryUpdate):
